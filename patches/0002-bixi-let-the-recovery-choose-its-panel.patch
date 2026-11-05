@@ -1,0 +1,198 @@
+diff --git a/Android.bp b/Android.bp
+index 1909270..0937fc0 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -7,6 +7,8 @@ cc_binary {
+     srcs: ["display/bixi_cover_display_cleanup.c"],
+     c_std: "gnu11",
+     static_libs: ["libdrm"],
++    // property_get(), to learn which panel the recovery itself draws on.
++    shared_libs: ["libcutils"],
+     cflags: [
+         "-Wall",
+         "-Wextra",
+diff --git a/display/bixi_cover_display_cleanup.c b/display/bixi_cover_display_cleanup.c
+index 5b088df..ed67972 100644
+--- a/display/bixi_cover_display_cleanup.c
++++ b/display/bixi_cover_display_cleanup.c
+@@ -15,13 +15,14 @@
+ #include <sys/stat.h>
+ #include <unistd.h>
+ 
++#include <cutils/properties.h>
++
+ #ifndef DRM_MODE_CONNECTOR_DSI
+ #define DRM_MODE_CONNECTOR_DSI 16
+ #endif
+ 
+-#define BIXI_COVER_WIDTH 1208
+-#define BIXI_COVER_HEIGHT 1392
+ #define BIXI_DSI_CONNECTOR_INDEX 2
++#define BIXI_INNER_DSI_CONNECTOR_INDEX 1
+ #define DEBUGFS_MOUNT_POINT "/sys/kernel/debug"
+ #define REGULATOR_DEBUGFS_ROOT DEBUGFS_MOUNT_POINT "/regulator"
+ #define COVER_VCI_REGULATOR_NAME "pm_humu_l8"
+@@ -36,6 +37,28 @@ static void log_result(const char *message) {
+     fprintf(stderr, "bixi-cover-display: %s\n", message);
+ }
+ 
++/*
++ * This program exists to release the bootloader's continuous splash so a
++ * stale Xiaomi logo does not stay lit. When the recovery draws on the cover
++ * panel instead (twrp.drm.connector names 1208x1392 / DSI-2), the same panel
++ * is the one that must stay powered: tearing down its pipeline here would
++ * blank the UI the recovery is about to present. In that case there is
++ * nothing to release on the cover panel, but the inner panel still carries
++ * its own continuous splash, so the work moves to whichever panel the
++ * recovery is not using.
++ */
++static int cover_panel_is_the_recovery_screen(void) {
++    char requested[PROPERTY_VALUE_MAX] = {};
++
++    if (property_get("twrp.drm.connector", requested, "") <= 0) {
++        return 0;
++    }
++    if (strstr(requested, "DSI-2") != NULL) {
++        return 1;
++    }
++    return strstr(requested, "1208x1392") != NULL;
++}
++
+ /*
+  * The bootloader leaves the secondary OLED displaying its continuous-splash
+  * framebuffer.  Detaching the DRM pipeline stops scanout, but the panel keeps
+@@ -103,6 +126,9 @@ static int force_disable_cover_vci(void) {
+     return result;
+ }
+ 
++/* Both panels report a real mode while the bootloader's splash is still up;
++ * what matters is that the encoder drives an active CRTC, not which panel it
++ * is, since the caller has already chosen the connector by index. */
+ static int cover_mode_is_active(int fd, uint32_t crtc_id) {
+     drmModeCrtc *crtc;
+     int active;
+@@ -116,8 +142,7 @@ static int cover_mode_is_active(int fd, uint32_t crtc_id) {
+         return 0;
+     }
+ 
+-    active = crtc->mode_valid && crtc->mode.hdisplay == BIXI_COVER_WIDTH &&
+-             crtc->mode.vdisplay == BIXI_COVER_HEIGHT;
++    active = crtc->mode_valid;
+     drmModeFreeCrtc(crtc);
+     return active;
+ }
+@@ -143,12 +168,19 @@ static uint32_t active_crtc_from_encoder(int fd, uint32_t encoder_id) {
+ static uint32_t find_secondary_crtc(int fd, uint32_t *target_connector_id) {
+     drmModeRes *resources;
+     uint32_t target_crtc = 0;
++    unsigned wanted_index = BIXI_DSI_CONNECTOR_INDEX;
+ 
+     resources = drmModeGetResources(fd);
+     if (resources == NULL) {
+         return 0;
+     }
+ 
++    /* Whichever panel the recovery is not drawing on is the one whose splash
++     * has to be released, so look for the other DSI connector. */
++    if (cover_panel_is_the_recovery_screen()) {
++        wanted_index = BIXI_INNER_DSI_CONNECTOR_INDEX;
++    }
++
+     for (int i = 0; i < resources->count_connectors; ++i) {
+         drmModeConnector *connector =
+                 drmModeGetConnector(fd, resources->connectors[i]);
+@@ -157,7 +189,7 @@ static uint32_t find_secondary_crtc(int fd, uint32_t *target_connector_id) {
+             continue;
+         }
+         if (connector->connector_type != DRM_MODE_CONNECTOR_DSI ||
+-            connector->connector_type_id != BIXI_DSI_CONNECTOR_INDEX) {
++            connector->connector_type_id != wanted_index) {
+             drmModeFreeConnector(connector);
+             continue;
+         }
+@@ -276,6 +308,7 @@ int main(void) {
+     uint32_t crtc_id;
+     int power_result;
+     int fd;
++    const int cover_is_recovery_screen = cover_panel_is_the_recovery_screen();
+ 
+     fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+     if (fd < 0) {
+@@ -293,7 +326,9 @@ int main(void) {
+ 
+     crtc_id = find_secondary_crtc(fd, &connector_id);
+     if (crtc_id == 0) {
+-        log_result("active 1208x1392 DSI-2 pipeline not found; nothing changed");
++        log_result(cover_is_recovery_screen
++                           ? "no stale inner-panel pipeline; nothing changed"
++                           : "active 1208x1392 DSI-2 pipeline not found; nothing changed");
+         close(fd);
+         return EXIT_SUCCESS;
+     }
+@@ -306,10 +341,18 @@ int main(void) {
+         return EXIT_FAILURE;
+     }
+ 
+-    snprintf(message, sizeof(message), "disabled DSI-2 CRTC %u", crtc_id);
++    snprintf(message, sizeof(message), "disabled CRTC %u", crtc_id);
+     log_result(message);
+     close(fd);
+ 
++    /* pm_humu_l8 feeds the cover panel only. Releasing the splash on the
++     * inner panel does not need it, and forcing it off would kill the panel
++     * the recovery is drawing on. */
++    if (cover_is_recovery_screen) {
++        log_result("cover panel is the recovery screen; VCI left powered");
++        return EXIT_SUCCESS;
++    }
++
+     power_result = force_disable_cover_vci();
+     if (power_result != 0) {
+         snprintf(message, sizeof(message), "failed to force off cover VCI: %s",
+diff --git a/recovery/root/init.recovery.qcom.rc b/recovery/root/init.recovery.qcom.rc
+index ed0e6da..8a3436d 100644
+--- a/recovery/root/init.recovery.qcom.rc
++++ b/recovery/root/init.recovery.qcom.rc
+@@ -1,13 +1,24 @@
+ on early-init
+-    # vendor_dlkm is not mapped during first bring-up. Load the matching stock
+-    # touch stack from the recovery ramdisk in dependency order.
++    # bixi has one touch controller per panel, and the two are different
++    # parts: the inner 1224x2912 panel pairs with synaptics_tcm2 (DT node
++    # synaptics_tcm@0, "panel" -> dsi_o8_42_02_0a_prim_dsc_cmd, phandle
++    # 0x122) and the 1208x1392 cover panel with goodix_core (DT node
++    # goodix_berlin@0, "panel" -> dsi_o8_42_02_0a_sec_dsc_cmd, phandle
++    # 0x123). Both drivers depend on xiaomi_touch.ko, so it loads first.
++    # Loading both keeps either panel drivable without a rebuild; the
++    # recovery only ever draws on the one twrp.drm.connector names.
+     insmod /vendor/lib/modules/xiaomi_touch.ko
+     insmod /vendor/lib/modules/synaptics_tcm2.ko
++    insmod /vendor/lib/modules/goodix_core.ko
+ 
+ on init
+     # Match the stock recovery's UFS compatibility link and initial panel level.
+     wait /dev/block/platform/soc/${ro.boot.bootdevice}
+     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
++    # Name the panel the recovery draws on, configured by
++    # twrp.drm.connector in system.prop. twrpminui's find_main_monitor()
++    # otherwise takes the first connected DSI connector, which on bixi is the
++    # inner panel; DSI-2 / 1208x1392 selects the cover panel instead.
+     write /sys/class/backlight/panel0-backlight/brightness 200
+     write /sys/class/backlight/panel1-backlight/brightness 0
+     setprop sys.usb.configfs 1
+diff --git a/system.prop b/system.prop
+index e168b10..34cee09 100644
+--- a/system.prop
++++ b/system.prop
+@@ -12,3 +12,11 @@ vendor.usb.configfs=1
+ vendor.usb.rps_mask=0
+ vendor.usb.uvc.function.init=1
+ service.adb.tcp.port=5555
++
++# Which panel TWRP draws on. bixi exposes both panels as DSI connectors and
++# twrpminui otherwise takes the first connected one. Possible values:
++#   DSI-1 / 1224x2912   inner panel (what the tree does today)
++#   DSI-2 / 1208x1392   cover panel
++# Needs the find_connector_by_name() patch in bootable/recovery's
++# twrpminui/graphics_drm.cpp; without it twrpminui ignores the property.
++twrp.drm.connector=DSI-1

@@ -1,0 +1,99 @@
+diff --git a/twrpminui/graphics_drm.cpp b/twrpminui/graphics_drm.cpp
+index a0f2c0c..7a79b84 100644
+--- a/twrpminui/graphics_drm.cpp
++++ b/twrpminui/graphics_drm.cpp
+@@ -52,6 +52,7 @@
+ #include <unistd.h>
+ 
+ #include <android-base/properties.h>
++#include <cutils/properties.h>
+ 
+ #include <algorithm>
+ #include <array>
+@@ -969,6 +970,60 @@ static drmModeConnector *find_first_connected_connector(int fd,
+     return nullptr;
+ }
+ 
++/*
++ * A book-style foldable exposes both its panels as DSI connectors, so the
++ * type-priority walk below picks whichever one the driver happens to list
++ * first. The device tree names the panel it wants drawn on instead:
++ *
++ *   twrp.drm.connector = DSI-2      connector_type_id, as /sys/class/drm does
++ *   twrp.drm.connector = 1208x1392  or the panel's native mode
++ *
++ * An unset or unmatched value keeps the legacy behaviour, so this cannot
++ * change a tree that does not ask for it.
++ */
++static drmModeConnector *find_connector_by_name(int fd,
++        drmModeRes *resources,
++        const char *name) {
++    unsigned want_type_id = 0;
++    unsigned want_width = 0;
++    unsigned want_height = 0;
++
++    /* DSI-0 is connector_type_id 0, so a zero id is not "no name given". */
++    bool by_type = sscanf(name, "DSI-%u", &want_type_id) == 1;
++    if (!by_type && sscanf(name, "%ux%u", &want_width, &want_height) != 2) {
++        return nullptr;
++    }
++
++    for (int i = 0; i < resources->count_connectors; i++) {
++        drmModeConnector* connector = drmModeGetConnector(fd,
++                                        resources->connectors[i]);
++        if (connector == nullptr)
++            continue;
++
++        bool match = false;
++        if (by_type) {
++            match = connector->connector_type == DRM_MODE_CONNECTOR_DSI &&
++                    connector->connector_type_id == want_type_id;
++        } else {
++            for (int m = 0; m < connector->count_modes && !match; m++) {
++                match = (unsigned)connector->modes[m].hdisplay == want_width &&
++                        (unsigned)connector->modes[m].vdisplay == want_height;
++            }
++        }
++        match = match && connector->connection == DRM_MODE_CONNECTED &&
++                connector->count_modes > 0;
++
++        if (match) {
++            printf("Chose connector %u (type %u id %u) by %s\n",
++                   connector->connector_id, connector->connector_type,
++                   connector->connector_type_id, name);
++            return connector;
++        }
++        drmModeFreeConnector(connector);
++    }
++    return nullptr;
++}
++
+ static bool get_kernel_video_mode(uint32_t* width, uint32_t* height) {
+     FILE* cmdline = fopen("/proc/cmdline", "r");
+     if (!cmdline)
+@@ -1027,12 +1082,23 @@ static drmModeConnector *find_main_monitor(int fd, drmModeRes *resources,
+ 
+     drmModeConnector *main_monitor_connector = nullptr;
+     unsigned i = 0;
+-    do {
++
++    char requested_connector[PROPERTY_VALUE_MAX] = {};
++    if (property_get("twrp.drm.connector", requested_connector, "") > 0) {
++        main_monitor_connector =
++                find_connector_by_name(fd, resources, requested_connector);
++        if (main_monitor_connector == nullptr) {
++            printf("twrp.drm.connector=%s matched no connected panel; "
++                   "falling back\n", requested_connector);
++        }
++    }
++
++    while (!main_monitor_connector && i < ARRAY_SIZE(kConnectorPriority)) {
+         main_monitor_connector = find_used_connector_by_type(fd,
+                                          resources,
+                                          kConnectorPriority[i]);
+         i++;
+-    } while (!main_monitor_connector && i < ARRAY_SIZE(kConnectorPriority));
++    }
+ 
+     /* If we didn't find a connector, grab the first one that is connected. */
+     if (!main_monitor_connector)

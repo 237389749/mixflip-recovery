@@ -1,0 +1,451 @@
+diff --git a/crates/skyward-config/src/lib.rs b/crates/skyward-config/src/lib.rs
+index 3bd3cfa..e71eef6 100644
+--- a/crates/skyward-config/src/lib.rs
++++ b/crates/skyward-config/src/lib.rs
+@@ -278,6 +278,21 @@ pub struct Display {
+     /// sliding over another rounds its leading corners to it.
+     #[serde(default)]
+     pub corner_radius: u32,
++    /// Which built-in panel to draw on, on phones that have more than one.
++    /// A book-style foldable exposes both of its panels as DSI connectors,
++    /// and the recovery otherwise takes the first one the driver lists,
++    /// which is the inner panel on such a phone.
++    ///
++    /// Either the connector as /sys/class/drm names it ("DSI-2"), or the
++    /// panel's native size ("1208x1392"). Left out, the first connected
++    /// panel is used, as on every single-screen phone.
++    #[serde(default)]
++    pub panel: Option<String>,
++    /// The backlight of the panel to draw on, under /sys/class/backlight.
++    /// Left out, the first one named panel0-backlight is used, which is the
++    /// inner panel's on a foldable.
++    #[serde(default)]
++    pub backlight: Option<String>,
+ }
+ 
+ #[derive(Debug, Clone, Deserialize)]
+@@ -495,6 +510,24 @@ impl DeviceConfig {
+         for name in &cfg.partitions.mounted {
+             ensure!(!name.is_empty() && !name.contains('/'), "[partitions] mounted: {name} is not a partition's name");
+         }
++        if let Some(panel) = &cfg.display.panel {
++            // A name the recovery can act on: a connector's, or a size. A
++            // typo would otherwise silently fall back to the first panel,
++            // which on a foldable is the one the caller meant to leave.
++            let named = panel
++                .strip_prefix("DSI-")
++                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
++            let sized = panel
++                .split_once('x')
++                .is_some_and(|(w, h)| !w.is_empty() && !h.is_empty() && w.bytes().chain(h.bytes()).all(|b| b.is_ascii_digit()));
++            ensure!(named || sized, "[display] panel: {panel:?} is neither a connector name (DSI-2) nor a size (1208x1392)");
++        }
++        if let Some(backlight) = &cfg.display.backlight {
++            ensure!(
++                !backlight.is_empty() && !backlight.contains('/'),
++                "[display] backlight: {backlight:?} is not a device name under /sys/class/backlight"
++            );
++        }
+         for s in cfg.services.iter().filter(|s| s.oneshot) {
+             let waits = s.ready_property.is_some() || s.ready_service.is_some() || s.ready_hardware_service.is_some();
+             ensure!(
+@@ -621,6 +654,40 @@ mod tests {
+         assert_eq!(haptics.strength, Strength { lightest: 0.5, strongest: 1.0 });
+     }
+ 
++    #[test]
++    fn a_display_names_the_panel_it_draws_on() {
++        // A phone with one panel names neither, and takes the first one.
++        let one = DeviceConfig::parse("[device]\ncodename = \"x\"\n[display]\nwidth = 1200\nheight = 2608\n").unwrap();
++        assert_eq!((one.display.panel, one.display.backlight), (None, None));
++
++        // A foldable draws on the cover panel, whose backlight is not the
++        // one the recovery would otherwise pick.
++        let fold = DeviceConfig::parse(
++            "[device]\ncodename = \"bixi\"\n[display]\nwidth = 1208\nheight = 1392\ndensity = 440\n\
++             panel = \"1208x1392\"\nbacklight = \"panel1-backlight\"\n",
++        )
++        .unwrap();
++        assert_eq!(fold.display.panel.as_deref(), Some("1208x1392"));
++        assert_eq!(fold.display.backlight.as_deref(), Some("panel1-backlight"));
++    }
++
++    #[test]
++    fn a_panel_named_is_rejected_unless_the_recovery_can_act_on_it() {
++        let with = |name: &str| DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[display]\npanel = \"{name}\"\n"));
++        for good in ["DSI-2", "DSI-0", "1208x1392"] {
++            assert!(with(good).is_ok(), "{good} names a panel");
++        }
++        for bad in ["dsi-2", "DSI-", "DSI-two", "1208x", "x1392", "1208*1392", "cover", ""] {
++            assert!(with(bad).is_err(), "{bad} names no panel the recovery can find");
++        }
++        let backlight = |name: &str| {
++            DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[display]\nbacklight = \"{name}\"\n"))
++        };
++        assert!(backlight("panel1-backlight").is_ok());
++        assert!(backlight("").is_err(), "an empty name is no backlight");
++        assert!(backlight("/sys/class/backlight/x").is_err(), "a path is not a device name");
++    }
++
+     #[test]
+     fn a_click_is_kept_or_made_and_its_strengths_rise() {
+         let with = |body: &str| DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[haptics]\n{body}\n"));
+diff --git a/crates/skyward-preview/src/main.rs b/crates/skyward-preview/src/main.rs
+index ee23eaf..a40d12c 100644
+--- a/crates/skyward-preview/src/main.rs
++++ b/crates/skyward-preview/src/main.rs
+@@ -128,7 +128,15 @@ fn main() -> Result<()> {
+         eprintln!("axis {tag}: {min}..{max} (default {def})");
+     }
+ 
+-    let cfg = DeviceConfig::load(root.join("devices/nezha.toml"))?;
++    // Which phone's pages to draw, by codename: a phone with more than one
++    // panel (a foldable's inner and cover panels) differs in size and
++    // density between them, and the pages are laid out from both.
++    let device = match args.iter().position(|a| a == "--device") {
++        Some(k) => args.get(k + 1).ok_or_else(|| anyhow!("--device needs a codename"))?.clone(),
++        None => "nezha".to_string(),
++    };
++    let config = root.join(&format!("devices/{device}.toml"));
++    let cfg = DeviceConfig::load(&config)?;
+     let (w, h) = (cfg.display.width, cfg.display.height);
+     let ppd = cfg.display.density as f32 / 160.0;
+     let light = Theme::light(w, h, ppd);
+@@ -1405,10 +1413,12 @@ fn whole_page(app: &mut App, f: &Fonts, info: &DeviceInfo) -> Canvas {
+ }
+ 
+ /// Xiaomi 17 Ultra by Leica as `skyward info` read it on 2026-10-18 (the
+-/// config supplies the SoC name, panel and screen size).
++/// config supplies the SoC name, panel and screen size). The numbers are
++/// this one phone's; another phone's pages are about what it looks like at
++/// its panel's size and density, which the config gives.
+ fn nezha(cfg: &DeviceConfig) -> DeviceInfo {
+     DeviceInfo {
+-        model: "Xiaomi 17 Ultra by Leica".into(),
++        model: if cfg.device.model.is_empty() { "Xiaomi 17 Ultra by Leica".into() } else { cfg.device.model.clone() },
+         codename: cfg.device.codename.clone(),
+         soc: cfg.device.soc.clone(),
+         cpu: Cpu { cores: 8, max_khz: Some(4_608_000) },
+diff --git a/crates/skyward-ui/src/surface.rs b/crates/skyward-ui/src/surface.rs
+index 5f2e27b..342f24e 100644
+--- a/crates/skyward-ui/src/surface.rs
++++ b/crates/skyward-ui/src/surface.rs
+@@ -57,6 +57,41 @@ impl SdeMode {
+     }
+ }
+ 
++/// Which panel the device configuration asks for, as `[display] panel`
++/// spells it: the connector as /sys/class/drm names it ("DSI-2", whose 2 is
++/// the connector's interface id), or the panel's native size
++/// ("1208x1392"), which needs no knowledge of the wiring.
++#[cfg(any(target_os = "android", test))]
++#[derive(Debug, PartialEq, Eq)]
++enum Wanted {
++    Connector(u32),
++    Size(u32, u32),
++}
++
++#[cfg(any(target_os = "android", test))]
++impl Wanted {
++    fn parse(name: &str) -> Option<Wanted> {
++        if let Some(number) = name.strip_prefix("DSI-") {
++            return number.parse().ok().map(Wanted::Connector);
++        }
++        let (width, height) = name.split_once('x')?;
++        Some(Wanted::Size(width.parse().ok()?, height.parse().ok()?))
++    }
++
++    /// Whether a connector is the one asked for, given what it says about
++    /// itself: whether it is DSI, that interface's number, and the sizes it
++    /// reports. A mode reports its size in 16 bits, which a panel's own
++    /// pixels still fit in.
++    fn matches(&self, is_dsi: bool, interface_id: u32, sizes: impl IntoIterator<Item = (u16, u16)>) -> bool {
++        match *self {
++            Wanted::Connector(number) => is_dsi && interface_id == number,
++            Wanted::Size(width, height) => {
++                sizes.into_iter().any(|size| size == (width as u16, height as u16))
++            }
++        }
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -71,6 +106,38 @@ mod tests {
+         assert_eq!(SdeMode::find(ISHTAR, "1080x2400x60cmd").unwrap(), SdeMode { mixers: 1, dsc: false });
+         assert!(SdeMode::find(ISHTAR, "1440x3200x90cmd").is_err());
+     }
++
++    #[test]
++    fn a_panel_is_named_by_its_connector_or_by_its_size() {
++        assert_eq!(Wanted::parse("DSI-2"), Some(Wanted::Connector(2)));
++        assert_eq!(Wanted::parse("DSI-0"), Some(Wanted::Connector(0)));
++        assert_eq!(Wanted::parse("1208x1392"), Some(Wanted::Size(1208, 1392)));
++        for not in ["dsi-2", "DSI-", "DSI-x", "1208x", "x1392", "", "1208*1392", "DSI-2x"] {
++            assert_eq!(Wanted::parse(not), None, "{not:?} names no panel");
++        }
++    }
++
++    #[test]
++    fn a_named_connector_matches_only_a_dsi_of_that_number() {
++        let wanted = Wanted::parse("DSI-2").unwrap();
++        let cover = [(1208u16, 1392u16)];
++        let inner = [(1224u16, 2912u16)];
++        assert!(wanted.matches(true, 2, cover), "the cover panel is DSI-2");
++        assert!(!wanted.matches(true, 1, inner), "the inner panel is DSI-1");
++        // An HDMI connector 2 is not the DSI one the phone means.
++        assert!(!wanted.matches(false, 2, cover), "not every connector 2 is a panel");
++    }
++
++    #[test]
++    fn a_named_size_matches_a_panel_reporting_it_in_any_mode() {
++        let wanted = Wanted::parse("1208x1392").unwrap();
++        // The cover panel reports its size at each of its two refresh rates.
++        assert!(wanted.matches(true, 2, [(1208u16, 1392u16), (1208, 1392)]));
++        // The inner panel's modes are all its own size.
++        assert!(!wanted.matches(true, 1, [(1224u16, 2912u16), (1224, 2912)]));
++        // A panel that reports nothing matches nothing.
++        assert!(!wanted.matches(true, 2, []));
++    }
+ }
+ 
+ #[cfg(target_os = "android")]
+@@ -353,20 +420,55 @@ pub mod kms {
+         summary: String,
+     }
+ 
++    fn panel_is(info: &connector::Info, wanted: &Wanted) -> bool {
++        wanted.matches(
++            info.interface() == connector::Interface::DSI,
++            info.interface_id(),
++            info.modes().iter().map(|m| m.size()),
++        )
++    }
++
+     impl KmsSurface {
+         pub fn open(path: &str) -> Result<Self> {
++            Self::open_on(path, None)
++        }
++
++        /// Open the card and drive the panel the configuration names; with
++        /// none named, the first connected one, as on a single-screen phone.
++        pub fn open_on(path: &str, wanted: Option<&str>) -> Result<Self> {
+             let card = open_card(path)?;
+             let res = card.resource_handles().context("read KMS resources")?;
+ 
+-            let mut panel = None;
++            let mut panels = Vec::new();
+             for &h in res.connectors() {
+-                let info = card.get_connector(h, true).context("read connector")?;
++                // The weak read first: it carries the modes without forcing
++                // the driver to probe the display.
++                let info = card.get_connector(h, false).context("read connector")?;
+                 if is_panel(info.interface()) && info.state() == connector::State::Connected {
+-                    panel = Some(info);
+-                    break;
++                    panels.push(card.get_connector(h, true).context("read connector")?);
+                 }
+             }
+-            let conn = panel.ok_or_else(|| anyhow!("no connected built-in panel"))?;
++
++            let index = match wanted {
++                Some(name) => {
++                    let wanted = Wanted::parse(name).with_context(|| format!("[display] panel: {name:?} names no panel"))?;
++                    panels.iter().position(|info| panel_is(info, &wanted)).ok_or_else(|| {
++                        // Name the panels there are, rather than quietly draw
++                        // on another: on a foldable that is the one the phone
++                        // is normally shut on.
++                        let listed: Vec<String> = panels
++                            .iter()
++                            .map(|i| {
++                                let (w, h) = i.modes().first().map_or((0, 0), |m| m.size());
++                                format!("{:?} {w}x{h}", i.interface())
++                            })
++                            .collect();
++                        anyhow!("no connected panel is {name}; the panels are {listed:?}")
++                    })?
++                }
++                None => 0,
++            };
++            let conn = panels.into_iter().nth(index).ok_or_else(|| anyhow!("no connected built-in panel"))?;
+             let preferred = conn
+                 .modes()
+                 .iter()
+diff --git a/crates/skyward/src/haptics.rs b/crates/skyward/src/haptics.rs
+index c25ddc4..a126a13 100644
+--- a/crates/skyward/src/haptics.rs
++++ b/crates/skyward/src/haptics.rs
+@@ -132,12 +132,23 @@ fn share(strength: &Strength, position: f32) -> f32 {
+ }
+ 
+ /// The motor's resonant frequency in hertz, from the file the driver says
+-/// it in, in tenths of a hertz.
++/// it in.
+ fn resonance(file: &str) -> Result<f32> {
+     let text = fs::read_to_string(file).with_context(|| format!("read {file}"))?;
+-    let tenths: u32 = text.split_whitespace().next().and_then(|n| n.parse().ok()).with_context(|| format!("{file} holds {text:?}"))?;
+-    ensure!(tenths > 0, "{file} says the motor swings at 0 Hz");
+-    Ok(tenths as f32 / 10.0)
++    parse_resonance(&text).with_context(|| format!("{file} holds {text:?}"))
++}
++
++/// Drivers disagree on both the unit and the tail: the 17 Ultra's file holds
++/// tenths of a hertz as a bare number, while Qualcomm's own hv-haptics
++/// prints whole hertz and then " Hz" (lra_frequency_hz_show in
++/// drivers/input/misc/qcom-hv-haptics.c). The tail says which is which, and
++/// a bare number is read as tenths, as it always was.
++fn parse_resonance(text: &str) -> Result<f32> {
++    let mut words = text.split_whitespace();
++    let value: u32 = words.next().and_then(|n| n.parse().ok()).context("no number")?;
++    ensure!(value > 0, "the motor swings at 0 Hz");
++    let whole = words.next().is_some_and(|unit| unit.eq_ignore_ascii_case("hz"));
++    Ok(if whole { value as f32 } else { value as f32 / 10.0 })
+ }
+ 
+ /// A click's samples at [`RATE`] for a motor that swings at `hz`: whole
+@@ -274,4 +285,17 @@ mod tests {
+         assert!((share(&s, 0.25) / share(&s, 0.0) - share(&s, 1.0) / share(&s, 0.75)).abs() < 1e-6, "each step the same factor");
+         assert_eq!((share(&s, -1.0), share(&s, 2.0)), (0.25, 1.0), "no further than its ends");
+     }
++
++    #[test]
++    fn a_resonance_reads_whole_hertz_or_tenths_by_its_tail() {
++        // Qualcomm's hv-haptics: whole hertz, then the unit.
++        assert_eq!(parse_resonance("172 Hz\n").unwrap(), 172.0);
++        assert_eq!(parse_resonance("172 hz").unwrap(), 172.0);
++        // The 17 Ultra's driver: tenths, bare.
++        assert_eq!(parse_resonance("1724\n").unwrap(), 172.4);
++        assert_eq!(parse_resonance(" 1724 ").unwrap(), 172.4);
++        assert!(parse_resonance("0\n").is_err(), "a motor that does not swing");
++        assert!(parse_resonance("Hz\n").is_err(), "no number");
++        assert!(parse_resonance("").is_err());
++    }
+ }
+diff --git a/crates/skyward/src/ui.rs b/crates/skyward/src/ui.rs
+index e6617ec..883738e 100644
+--- a/crates/skyward/src/ui.rs
++++ b/crates/skyward/src/ui.rs
+@@ -78,19 +78,36 @@ struct Backlight {
+ }
+ 
+ impl Backlight {
+-    fn open() -> Result<Self> {
++    fn open(named: Option<&str>) -> Result<Self> {
+         let mut dirs: Vec<PathBuf> = fs::read_dir("/sys/class/backlight")
+             .context("read /sys/class/backlight")?
+             .map(|e| e.map(|e| e.path()))
+             .collect::<std::io::Result<_>>()?;
+         dirs.sort();
+-        // Qualcomm panels expose panel0-backlight; take it when present.
+-        let dir = dirs
+-            .iter()
+-            .find(|d| d.file_name().is_some_and(|n| n == "panel0-backlight"))
+-            .or(dirs.first())
+-            .ok_or_else(|| anyhow!("no backlight device"))?
+-            .clone();
++        // Qualcomm panels expose panel0-backlight; take it when present,
++        // unless the configuration names the panel being drawn on, whose own
++        // backlight is then the one to raise.
++        //
++        // A name the phone does not have falls back to that: the recovery's
++        // whole point is to be usable, and a panel left dark by a wrong
++        // device name is worse than one at another panel's brightness.
++        let named_dir = named.and_then(|name| {
++            let found = dirs.iter().find(|d| d.file_name().is_some_and(|n| n == name)).cloned();
++            if found.is_none() {
++                let listed: Vec<String> = dirs.iter().filter_map(|d| d.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
++                eprintln!("no backlight {name}; the backlights are {listed:?}, taking the usual one");
++            }
++            found
++        });
++        let dir = match named_dir {
++            Some(dir) => dir,
++            None => dirs
++                .iter()
++                .find(|d| d.file_name().is_some_and(|n| n == "panel0-backlight"))
++                .or(dirs.first())
++                .ok_or_else(|| anyhow!("no backlight device"))?
++                .clone(),
++        };
+         let read = |name: &str| -> Result<u32> {
+             fs::read_to_string(dir.join(name))
+                 .with_context(|| format!("read {}/{name}", dir.display()))?
+@@ -135,31 +152,49 @@ const NORMAL_MAX: [(&str, &str); 3] = [
+ /// Above it the panel runs in high brightness mode, which the stock system
+ /// keeps for strong sunlight and its slider does not reach. The panel the
+ /// display driver booted with gives that maximum in the device tree.
++///
++/// Only Qualcomm's own display driver (whose dsi_display.c registers the
++/// panel it booted as a module parameter) carries that parameter. A kernel
++/// whose msm driver is the mainline one registers no such thing, and then
++/// `max` itself is the only maximum there is: the whole range is the
++/// panel's, which is what the backlight file means by max_brightness
++/// anyway. Failing outright would leave the screen dark over a number that
++/// only decides how bright the slider goes.
+ fn normal_max(max: u32) -> Result<u32> {
+     let param = "/sys/module/msm_drm/parameters/dsi_display0";
+-    let boot = fs::read_to_string(param).with_context(|| format!("read {param}"))?;
++    let Ok(boot) = fs::read_to_string(param) else {
++        return Ok(max);
++    };
+     // The panel's node, then its configuration after a colon, as in
+     // "qcom,mdss_dsi_m1_42_02_0a_dsc_cmd:"; the driver takes no name
+     // without the colon either.
+-    let (name, _) = boot.trim().split_once(':').with_context(|| format!("{param} names no panel: {boot:?}"))?;
++    let Some((name, _)) = boot.trim().split_once(':') else {
++        return Ok(max);
++    };
+     let soc = Path::new("/proc/device-tree/soc");
+-    let node = fs::read_dir(soc)
+-        .with_context(|| format!("read {}", soc.display()))?
++    let Ok(entries) = fs::read_dir(soc) else {
++        return Ok(max);
++    };
++    let node = entries
+         .map(|e| e.map(|e| e.path().join(name)))
+         .collect::<std::io::Result<Vec<_>>>()?
+         .into_iter()
+-        .find(|p| p.is_dir())
+-        .ok_or_else(|| anyhow!("panel {name} is not in the device tree"))?;
++        .find(|p| p.is_dir());
++    let Some(node) = node else {
++        return Ok(max);
++    };
+     let cell = |prop: &str| -> Result<u32> {
+         let path = node.join(prop);
+         let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+         let cell: [u8; 4] = bytes.as_slice().try_into().map_err(|_| anyhow!("{} is not one cell", path.display()))?;
+         Ok(u32::from_be_bytes(cell))
+     };
+-    let (normal, full) = NORMAL_MAX
+-        .iter()
+-        .find(|(normal, _)| node.join(normal).exists())
+-        .with_context(|| format!("panel {name} gives its normal maximum as none of {NORMAL_MAX:?}"))?;
++    // A panel that gives none of these is one whose whole range is normal;
++    // the 13 Ultra's and the 17 Ultra's both give one, and a phone whose
++    // panel does not still has a usable backlight.
++    let Some((normal, full)) = NORMAL_MAX.iter().find(|(normal, _)| node.join(normal).exists()) else {
++        return Ok(max);
++    };
+     let (normal, full) = (cell(normal)?, cell(full)?);
+     ensure!(normal > 0 && normal <= full, "panel {name}: normal maximum {normal} out of {full}");
+     Ok((f64::from(max) * f64::from(normal) / f64::from(full)).round() as u32)
+@@ -1020,7 +1055,7 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request,
+     }
+     let mut info = skyward_info::collect(cfg)?;
+     let fonts = Fonts::load(font, 0, mono)?;
+-    let mut surface = KmsSurface::open("/dev/dri/card0")?;
++    let mut surface = KmsSurface::open_on("/dev/dri/card0", cfg.display.panel.as_deref())?;
+     let (w, h) = surface.size();
+     eprintln!("display {}", surface.describe());
+     let mut inputs = Inputs::open(w, h, cfg.touch.writes.clone())?;
+@@ -1029,7 +1064,7 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request,
+     // adbd and fastbootd ask over it to go over to fastboot and back.
+     let control = Control::open()?;
+     let mut haptics = cfg.haptics.as_ref().map(Haptics::open).transpose()?;
+-    let mut backlight = Backlight::open()?;
++    let mut backlight = Backlight::open(cfg.display.backlight.as_deref())?;
+     let first = match &request.work {
+         Work::Fastboot => Screen::Fastboot,
+         Work::PromptWipeData => Screen::CantStart,

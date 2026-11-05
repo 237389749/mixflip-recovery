@@ -1,0 +1,186 @@
+[device]
+codename = "bixi"
+brand = "Xiaomi"
+model = "Xiaomi MIX Flip 2"
+ab = true
+soc = { hans = "第四代骁龙®8至尊版移动平台", hant = "Snapdragon® 8 Elite 行動平台", en = "Snapdragon® 8 Elite Mobile Platform" }
+os_version_prop = "ro.mi.os.version.incremental"
+
+# Two panels, and the recovery draws on one of them. This configuration is
+# the inner panel's: the phone unfolded, as it is normally used.
+#
+# From the stock dtbo (OS3.0.304.0.WOHCNXM): the inner panel is
+# qcom,mdss_dsi_o8_42_02_0a_prim_dsc_cmd at 1224x2912, the cover panel
+# qcom,mdss_dsi_o8_42_02_0a_sec_dsc_cmd at 1208x1392. Both are DSI
+# connectors and both stay connected at every fold state, so the recovery
+# has to be told which one to draw on.
+[display]
+width = 1224
+height = 2912
+# The stock system's ro.sf.lcd_density, which is tuned for this panel:
+# 1224 px at 520 dpi is 376 dp across, the width the stock UI is drawn at.
+density = 520
+diagonal = 6.86
+# Which panel the recovery draws on: the connector's name as
+# /sys/class/drm names it, or the panel's native size.
+panel = "1224x2912"
+# This panel's backlight. The recovery takes panel0-backlight without this
+# line, so naming it keeps the configuration honest about which panel it is.
+backlight = "panel0-backlight"
+# The cover panel still holds the bootloader's picture when the recovery
+# starts; it is turned off so it does not stay lit behind the inner one.
+backlights_off = ["panel1-backlight"]
+
+[modules]
+sources = ["vendor_boot", "vendor_dlkm", "vendor", "system_dlkm"]
+# One controller per panel, and the two are different parts: the inner
+# panel's is Synaptics TouchComm (synaptics_tcm@0 in the dtbo), the cover
+# panel's is Goodix Berlin (goodix_berlin@0). Both drivers depend on
+# Xiaomi's touch layer, whose dependency the source's modules.dep resolves.
+load = ["synaptics_tcm2", "goodix_core"]
+
+# The controller comes back from its reset sending raw frames for
+# /odm/lib64/libtouchreport.so, which a recovery runs none of; told through
+# Xiaomi's touch layer, the driver has it report positions instead. Known
+# of the Synaptics controller; whether Goodix's answers the same switch is
+# not yet tried, and the write fails harmlessly where it does not exist.
+#
+# Both controllers' drivers are loaded, so both input devices exist; the
+# recovery reads touches from the inner panel's, which is this one's.
+[touch]
+device = "synaptics"
+writes = [{ path = "/sys/class/touch/touch_dev/enable_touch_raw", value = "0" }]
+
+# The WLAN chip's firmware and the apps the secure world loads for the
+# secure element are on the modem partition, which the phone mounts at
+# /vendor/firmware_mnt and its own recovery leaves unmounted.
+[firmware]
+partition = "modem"
+
+# The persist partition, which the phone mounts at /mnt/vendor/persist and
+# its own recovery leaves unmounted. The secure world keeps its own files
+# there through qseecomd's listener, and the WLAN's MAC address is there.
+[partitions]
+mounted = ["persist"]
+
+# What the phone's own init runs once the system has finished starting. The
+# kernel starts both CPU clusters on the performance governor, which holds
+# them at their highest clock, and Qualcomm's idle driver keeps idle CPUs
+# from powering down until told otherwise; the script hands the clusters to
+# WALT, lets idle CPUs power down and sets how the memory bus scales.
+[[service]]
+path = "/vendor/bin/sh"
+args = ["/vendor/bin/init.kernel.post_boot.sh"]
+libraries = ["/system/lib64", "/vendor/lib64"]
+oneshot = true
+user = "root"
+groups = ["root", "system", "wakelock", "graphics"]
+
+# The secure world reaches back into Android through the listeners this
+# daemon registers; without them the key service cannot use any key.
+[[service]]
+path = "/vendor/bin/qseecomd"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_property = "vendor.sys.listeners.registered"
+user = "root"
+groups = ["root", "drmrpc"]
+
+# The key service, which alone can use the keys the phone wrapped in
+# hardware, and which also serves the secure clock and the shared secret.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.security.keymint-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.security.keymint.IKeyMintDevice/default"
+registers = [
+    "android.hardware.security.remotelyprovisionedcomponent.IRemotelyProvisionedComponent/default",
+    "android.hardware.security.secureclock.ISecureClock/default",
+    "android.hardware.security.sharedsecret.ISharedSecret/default",
+]
+# bixi's stock ROM reaches Gatekeeper through Qualcomm's own path rather
+# than the SPU, which a recovery does not bring up.
+user = "system"
+groups = ["system", "drmrpc"]
+
+# The credential service: what the secure world has check the secret behind
+# a screen lock, and the only thing that can hand out the note the key
+# service wants before it uses a key that secret guards.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.gatekeeper-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.gatekeeper.IGatekeeper/default"
+user = "system"
+groups = ["system"]
+
+# Every user's secret is bound to a slot of the secure element, with a
+# screen lock or without. bixi's is NXP's, behind its own Weaver service,
+# which reaches it through the secure world over the eSE transport
+# nxp-nci.ko provides.
+[[service]]
+path = "/odm/bin/hw/android.hardware.weaver-service.nxp-qti"
+libraries = ["/system/lib64", "/vendor/lib64", "/odm/lib64"]
+ready_service = "android.hardware.weaver.IWeaver/default"
+user = "system"
+groups = ["system", "drmrpc"]
+capabilities = ["WAKE_ALARM"]
+
+# The boot control, which says which slot the bootloader starts next and
+# switches it. It comes last: the phone is usable without it.
+[[service]]
+path = "/system/bin/hw/android.hardware.boot-service.qti.recovery"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.boot.IBootControl/default"
+user = "root"
+groups = ["root"]
+
+# WLAN: Qualcomm's Peach on PCIe, driven by qca_cld3_peach_v2 over the
+# cnss2 platform driver. The vendor's cfg80211 asks for rfkill, one of the
+# kernel's own modules in system_dlkm. Once fs_ready is written, cnss2
+# powers the chip up and loads its firmware from the modem partition, and
+# wlan0 appears.
+[wlan]
+modules = ["rfkill", "qca_cld3_peach_v2"]
+writes = [{ path = "/sys/devices/platform/soc/b0000000.qcom,cnss-peach/fs_ready", value = "1" }]
+interface = "wlan0"
+supplicant = "/vendor/bin/hw/wpa_supplicant"
+libraries = ["/system/lib64", "/vendor/lib64"]
+service = "android.hardware.wifi.supplicant.ISupplicant/default"
+probe = "http://connect.rom.miui.com/generate_204"
+
+# The update server the stock updater of the Chinese system asks.
+[update]
+server = "https://update.miui.com/updates/miotaV3.php"
+
+# qcom-hv-haptics. The motor's frequency is what its driver gives.
+[haptics]
+resonance = "/sys/class/qcom-haptics/lra_frequency_hz"
+strength = { lightest = 0.25, strongest = 0.75 }
+
+# The partitions a backup of the baseband and EFS takes: the baseband's
+# settings, with the IMEI, and the sensors' calibration. And what of the
+# data partition a backup leaves out because the secure world keeps it in
+# step with itself.
+[backup]
+efs = ["modemst1", "modemst2", "fsg", "fsc", "persist"]
+data_skipped = [
+    "vendor/tzstorage",
+    "vendor/qtee",
+    "vendor/mitee",
+    "vendor/goodix",
+    "vendor/fingerprint",
+    "vendor/fpdata",
+    "vendor/misc/mi_fp",
+]
+
+# Where the phone's own programs keep logs in the data partition.
+[wipe]
+logs = [
+    "/data/miuilog",
+    "/data/vendor/diag",
+    "/data/vendor/bsplog",
+    "/data/vendor/log",
+    "/data/vendor/ramdump",
+    "/data/vendor/ramdump_ssr",
+    "/data/vendor/ssrdump",
+    "/data/vendor/tombstones",
+    "/data/vendor/wlan_logs",
+]

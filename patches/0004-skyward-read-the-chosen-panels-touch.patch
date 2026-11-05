@@ -1,0 +1,248 @@
+diff --git a/crates/skyward-config/src/lib.rs b/crates/skyward-config/src/lib.rs
+index e71eef6..7cf303c 100644
+--- a/crates/skyward-config/src/lib.rs
++++ b/crates/skyward-config/src/lib.rs
+@@ -293,6 +293,12 @@ pub struct Display {
+     /// inner panel's on a foldable.
+     #[serde(default)]
+     pub backlight: Option<String>,
++    /// The backlights of the panels not being drawn on, which are turned
++    /// off as the recovery starts. A foldable boots with the bootloader's
++    /// picture on both panels, and the one left alone would otherwise stay
++    /// lit behind the recovery for as long as it runs.
++    #[serde(default)]
++    pub backlights_off: Vec<String>,
+ }
+ 
+ #[derive(Debug, Clone, Deserialize)]
+@@ -322,6 +328,13 @@ pub struct Touch {
+     /// step of starting the controller.
+     #[serde(default)]
+     pub writes: Vec<Write>,
++    /// Part of the name of the input device to read touches from, on a
++    /// phone that has more than one: a book-style foldable has a touch
++    /// controller per panel, and the recovery reads names them all. Left
++    /// out, the first direct multitouch device is taken, as on every
++    /// single-screen phone.
++    #[serde(default)]
++    pub device: Option<String>,
+ }
+ 
+ /// Partitions as the phone itself mounts them.
+@@ -528,6 +541,19 @@ impl DeviceConfig {
+                 "[display] backlight: {backlight:?} is not a device name under /sys/class/backlight"
+             );
+         }
++        if let Some(device) = &cfg.touch.device {
++            ensure!(!device.is_empty(), "[touch] device: an empty name names no input device");
++        }
++        for name in &cfg.display.backlights_off {
++            ensure!(
++                !name.is_empty() && !name.contains('/'),
++                "[display] backlights_off: {name:?} is not a device name under /sys/class/backlight"
++            );
++            ensure!(
++                Some(name) != cfg.display.backlight.as_ref(),
++                "[display] backlights_off: {name:?} is the backlight the recovery draws on"
++            );
++        }
+         for s in cfg.services.iter().filter(|s| s.oneshot) {
+             let waits = s.ready_property.is_some() || s.ready_service.is_some() || s.ready_hardware_service.is_some();
+             ensure!(
+@@ -688,6 +714,26 @@ mod tests {
+         assert!(backlight("/sys/class/backlight/x").is_err(), "a path is not a device name");
+     }
+ 
++    #[test]
++    fn the_panels_not_drawn_on_can_be_told_to_stay_dark() {
++        let with = |body: &str| DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[display]\n{body}\n"));
++        let cfg = with("backlight = \"panel1-backlight\"\nbacklights_off = [\"panel0-backlight\"]").unwrap();
++        assert_eq!(cfg.display.backlights_off, ["panel0-backlight"]);
++        assert!(with("backlights_off = [\"/sys/class/backlight/panel0-backlight\"]").is_err(), "a path is not a device name");
++        assert!(
++            with("backlight = \"panel0-backlight\"\nbacklights_off = [\"panel0-backlight\"]").is_err(),
++            "the backlight the recovery draws on is not turned off"
++        );
++    }
++
++    #[test]
++    fn a_touch_device_is_named_by_part_of_its_name() {
++        let with = |body: &str| DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[touch]\n{body}\n"));
++        assert_eq!(with("device = \"goodix\"").unwrap().touch.device.as_deref(), Some("goodix"));
++        assert!(with("device = \"\"").is_err(), "an empty name names no device");
++        assert_eq!(with("writes = []").unwrap().touch.device, None);
++    }
++
+     #[test]
+     fn a_click_is_kept_or_made_and_its_strengths_rise() {
+         let with = |body: &str| DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[haptics]\n{body}\n"));
+diff --git a/crates/skyward/src/input.rs b/crates/skyward/src/input.rs
+index 19a07d3..9586283 100644
+--- a/crates/skyward/src/input.rs
++++ b/crates/skyward/src/input.rs
+@@ -175,6 +175,14 @@ impl Panel {
+     }
+ }
+ 
++/// Whether an input device's name holds the part the configuration names.
++/// Kernels spell the same controller differently ("goodix_ts",
++/// "Synaptics TCM"), so a part is matched rather than the whole name, and
++/// case is not held against it.
++fn named(name: &str, part: &str) -> bool {
++    name.to_lowercase().contains(&part.to_lowercase())
++}
++
+ /// The touchscreen and the hardware buttons. /dev/input is watched, so a
+ /// device that shows up later, such as a touch panel whose driver module
+ /// loads after the UI starts, is picked up when it appears.
+@@ -185,12 +193,15 @@ pub struct Inputs {
+     seen: HashSet<PathBuf>,
+     /// What the touchscreen is told each time its panel is taken in.
+     touch_writes: Vec<Write>,
++    /// Part of the name of the device to read touches from, when the phone
++    /// has more than one touch controller.
++    device: Option<String>,
+     w: f32,
+     h: f32,
+ }
+ 
+ impl Inputs {
+-    pub fn open(w: u32, h: u32, touch_writes: Vec<Write>) -> Result<Self> {
++    pub fn open(w: u32, h: u32, touch_writes: Vec<Write>, device: Option<String>) -> Result<Self> {
+         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+         if fd < 0 {
+             return Err(io::Error::last_os_error()).context("create inotify instance");
+@@ -203,7 +214,7 @@ impl Inputs {
+             return Err(io::Error::last_os_error()).context("watch /dev/input");
+         }
+         let mut inputs =
+-            Inputs { watch, panel: None, buttons: Vec::new(), seen: HashSet::new(), touch_writes, w: w as f32, h: h as f32 };
++            Inputs { watch, panel: None, buttons: Vec::new(), seen: HashSet::new(), touch_writes, device, w: w as f32, h: h as f32 };
+         inputs.scan()?;
+         if inputs.panel.is_none() {
+             eprintln!("no touch panel yet; waiting for one to appear under /dev/input");
+@@ -211,11 +222,19 @@ impl Inputs {
+         Ok(inputs)
+     }
+ 
+-    /// Take in the devices under /dev/input not seen before: the first
+-    /// direct multitouch device as the panel, and every device with a
+-    /// power, volume or back key as buttons. A panel taken in is told what
+-    /// the device description writes to the touchscreen.
++    /// Take in the devices under /dev/input not seen before: the direct
++    /// multitouch device named by the configuration, or the first one when
++    /// none is named, as the panel, and every device with a power, volume
++    /// or back key as buttons. A panel taken in is told what the device
++    /// description writes to the touchscreen.
+     fn scan(&mut self) -> Result<()> {
++        // A phone with two panels has a touch controller on each, and only
++        // the one on the panel being drawn on is read. The first direct
++        // multitouch device is kept aside while the devices are looked at,
++        // and the one whose name holds the configured part is taken
++        // instead; the kept one is used when no name matches, so a name
++        // this kernel spells differently still leaves a usable recovery.
++        let mut fallback: Option<(PathBuf, RawDevice)> = None;
+         for (path, dev) in evdev::raw_stream::enumerate() {
+             if !self.seen.insert(path.clone()) {
+                 continue;
+@@ -225,18 +244,34 @@ impl Inputs {
+                 .supported_absolute_axes()
+                 .is_some_and(|a| a.contains(AbsoluteAxisCode::ABS_MT_POSITION_X) && a.contains(AbsoluteAxisCode::ABS_MT_POSITION_Y));
+             let keys = dev.supported_keys().is_some_and(|k| KEYS.iter().any(|c| k.contains(*c)));
+-            eprintln!("input {}: {:?} direct={direct} multitouch={mt} keys={keys}", path.display(), dev.name().unwrap_or("?"));
++            let name = dev.name().unwrap_or("?");
++            eprintln!("input {}: {name:?} direct={direct} multitouch={mt} keys={keys}", path.display());
+             if direct && mt && self.panel.is_none() {
+-                self.panel = Some(Panel::new(path, dev)?);
+-                for w in &self.touch_writes {
+-                    fs::write(&w.path, &w.value).with_context(|| format!("write {} to {}", w.value, w.path))?;
+-                    skyward_sys::kmsg(&format!("wrote {} to {} for the touchscreen", w.value, w.path))?;
++                if self.device.as_ref().is_none_or(|part| named(name, part)) {
++                    self.take_panel(path, dev)?;
++                } else if fallback.is_none() {
++                    fallback = Some((path, dev));
+                 }
+             } else if keys {
+                 set_nonblocking(dev.as_raw_fd()).context("make buttons non-blocking")?;
+                 self.buttons.push((path, dev));
+             }
+         }
++        if self.panel.is_none() {
++            if let Some((path, dev)) = fallback {
++                eprintln!("no touch device is named {:?}; taking {}", self.device.as_deref().unwrap_or(""), path.display());
++                self.take_panel(path, dev)?;
++            }
++        }
++        Ok(())
++    }
++
++    fn take_panel(&mut self, path: PathBuf, dev: RawDevice) -> Result<()> {
++        self.panel = Some(Panel::new(path, dev)?);
++        for w in &self.touch_writes {
++            fs::write(&w.path, &w.value).with_context(|| format!("write {} to {}", w.value, w.path))?;
++            skyward_sys::kmsg(&format!("wrote {} to {} for the touchscreen", w.value, w.path))?;
++        }
+         Ok(())
+     }
+ 
+@@ -317,3 +352,16 @@ impl Inputs {
+         Ok(out)
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::named;
++
++    #[test]
++    fn a_touch_device_is_named_by_part_of_its_name() {
++        assert!(named("goodix_ts", "goodix"));
++        assert!(named("Synaptics TCM", "synaptics"));
++        assert!(named("goodix_ts", "GOODIX"), "case is not held against a name");
++        assert!(!named("goodix_ts", "synaptics"), "one panel's controller is not the other's");
++    }
++}
+diff --git a/crates/skyward/src/ui.rs b/crates/skyward/src/ui.rs
+index 883738e..f6a253b 100644
+--- a/crates/skyward/src/ui.rs
++++ b/crates/skyward/src/ui.rs
+@@ -78,12 +78,22 @@ struct Backlight {
+ }
+ 
+ impl Backlight {
+-    fn open(named: Option<&str>) -> Result<Self> {
++    fn open(named: Option<&str>, off: &[String]) -> Result<Self> {
+         let mut dirs: Vec<PathBuf> = fs::read_dir("/sys/class/backlight")
+             .context("read /sys/class/backlight")?
+             .map(|e| e.map(|e| e.path()))
+             .collect::<std::io::Result<_>>()?;
+         dirs.sort();
++        // A foldable boots with the bootloader's picture on both panels.
++        // The ones the configuration says are left alone are turned off, so
++        // the panel the recovery does not draw on does not stay lit behind
++        // it; a name the phone does not have is only reported.
++        for name in off {
++            match dirs.iter().find(|d| d.file_name().is_some_and(|n| n == name.as_str())) {
++                Some(dir) => fs::write(dir.join("brightness"), "0").with_context(|| format!("turn off backlight {name}"))?,
++                None => eprintln!("no backlight {name} to turn off"),
++            }
++        }
+         // Qualcomm panels expose panel0-backlight; take it when present,
+         // unless the configuration names the panel being drawn on, whose own
+         // backlight is then the one to raise.
+@@ -1058,13 +1068,13 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request,
+     let mut surface = KmsSurface::open_on("/dev/dri/card0", cfg.display.panel.as_deref())?;
+     let (w, h) = surface.size();
+     eprintln!("display {}", surface.describe());
+-    let mut inputs = Inputs::open(w, h, cfg.touch.writes.clone())?;
++    let mut inputs = Inputs::open(w, h, cfg.touch.writes.clone(), cfg.touch.device.clone())?;
+     let started = Instant::now();
+     let mut touch_known = false;
+     // adbd and fastbootd ask over it to go over to fastboot and back.
+     let control = Control::open()?;
+     let mut haptics = cfg.haptics.as_ref().map(Haptics::open).transpose()?;
+-    let mut backlight = Backlight::open(cfg.display.backlight.as_deref())?;
++    let mut backlight = Backlight::open(cfg.display.backlight.as_deref(), &cfg.display.backlights_off)?;
+     let first = match &request.work {
+         Work::Fastboot => Screen::Fastboot,
+         Work::PromptWipeData => Screen::CantStart,

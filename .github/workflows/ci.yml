@@ -1,0 +1,240 @@
+﻿name: build
+
+# Every push lints and tests the patched skyward, checks that the two bixi
+# configurations differ only where a variant may, renders both variants to
+# PNG on Linux (where the preview can be built), and checks that the TWRP
+# patch still applies and compiles. With STOCK_BIXI_URL set, it also packs
+# both recovery images on the stock recovery partition.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  SKYWARD_URL: https://github.com/kirklin/skyward.git
+  SKYWARD_REF: c9deaf026eaf83fe2b9141dd656c256ddf42c8c1
+  TWRP_RECOVERY_URL: https://github.com/TWRP-Test/android_bootable_recovery.git
+  TWRP_RECOVERY_REF: 8a58fc3b586b8a908337fa87529cfbbb119ec7bb
+  TWRP_DEVICE_URL: https://github.com/daixu0502/twrp_device_xiaomi_sm8750_bixi.git
+  TWRP_DEVICE_REF: 9b4b445004006fc2ffbdfefbf7fc7e7758cf129a
+
+jobs:
+  skyward:
+    name: Lint and test the patched skyward
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out skyward at the pinned release
+        run: |
+          git clone --quiet "$SKYWARD_URL" upstream
+          git -C upstream checkout --quiet "$SKYWARD_REF"
+      - name: Apply the patches
+        run: |
+          for patch in patches/0003-*.patch patches/0004-*.patch patches/0005-*.patch; do
+            git -C upstream apply "$GITHUB_WORKSPACE/$patch"
+          done
+      - name: Install the device configurations
+        run: cp devices/*.toml upstream/devices/
+      - name: Install the toolchain
+        run: rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream
+      - name: Lint what runs on the computer
+        working-directory: upstream
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test
+        working-directory: upstream
+        run: cargo test --locked --workspace
+      - name: Install the Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+          add-to-path: false
+      - name: Point cargo-ndk at that NDK
+        env:
+          NDK: ${{ steps.ndk.outputs.ndk-path }}
+        run: echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk@4.1.2
+      - name: Lint what runs on the phone
+        working-directory: upstream
+        run: cargo ndk -t arm64-v8a --platform 30 clippy --locked -p skyward -p skyward-ui -p skyward-config -- -D warnings
+      - name: Check the two variants differ only where they may
+        run: python3 ci/check-variants.py
+
+  preview:
+    name: Preview ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    needs: skyward
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: bixi
+            device: bixi
+          - variant: bixi-cover
+            device: bixi-cover
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out skyward at the pinned release
+        run: |
+          git clone --quiet "$SKYWARD_URL" upstream
+          git -C upstream checkout --quiet "$SKYWARD_REF"
+      - name: Apply the patches
+        run: |
+          for patch in patches/0003-*.patch patches/0004-*.patch patches/0005-*.patch; do
+            git -C upstream apply "$GITHUB_WORKSPACE/$patch"
+          done
+      - name: Install the device configurations
+        run: cp devices/*.toml upstream/devices/
+      - name: Install the toolchain
+        run: rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream
+      - name: Draw the pages at the variant's size and density
+        working-directory: upstream
+        run: cargo run --locked --release -p skyward-preview -- "../out/preview-${{ matrix.variant }}" --device "${{ matrix.device }}" --lang zh-CN
+      - uses: actions/upload-artifact@v7
+        with:
+          name: preview-${{ matrix.variant }}
+          path: out/preview-${{ matrix.variant }}
+          if-no-files-found: error
+          retention-days: 14
+
+  twrp:
+    name: Patch and compile-check twrpminui
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the headers the DRM backend includes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libdrm-dev g++
+      - name: Check out bootable/recovery at the pinned commit
+        run: |
+          git init --quiet recovery
+          git -C recovery fetch --quiet --depth 1 "$TWRP_RECOVERY_URL" "$TWRP_RECOVERY_REF"
+          git -C recovery checkout --quiet FETCH_HEAD
+      - name: Apply the twrpminui patch
+        run: git -C recovery apply "$GITHUB_WORKSPACE/patches/0001-twrpminui-name-the-panel-on-foldables.patch"
+      - name: Compile the patched DRM backend, syntax only
+        run: |
+          g++ -std=gnu++17 -fsyntax-only \
+            -I recovery/twrpminui/include \
+            -I recovery/twrpminui \
+            -I recovery/libpixelflinger/include \
+            -I /usr/include/libdrm \
+            -I ci/stubs \
+            recovery/twrpminui/graphics_drm.cpp
+      - name: Check the device-tree patch applies
+        run: |
+          git init --quiet device
+          git -C device fetch --quiet --depth 1 "$TWRP_DEVICE_URL" "$TWRP_DEVICE_REF"
+          git -C device checkout --quiet FETCH_HEAD
+          git -C device apply --check "$GITHUB_WORKSPACE/patches/0002-bixi-let-the-recovery-choose-its-panel.patch"
+
+  image:
+    name: Recovery image for ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    needs: skyward
+    # Only when a stock recovery is reachable; the build itself does not
+    # need one, the packer does.
+    if: ${{ vars.STOCK_BIXI_URL != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: bixi
+            device: bixi
+            config: devices/bixi.toml
+          - variant: bixi-cover
+            device: bixi-cover
+            config: devices/bixi-cover.toml
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out skyward at the pinned release
+        run: |
+          git clone --quiet "$SKYWARD_URL" upstream
+          git -C upstream checkout --quiet "$SKYWARD_REF"
+      - name: Apply the patches
+        run: |
+          for patch in patches/0003-*.patch patches/0004-*.patch patches/0005-*.patch; do
+            git -C upstream apply "$GITHUB_WORKSPACE/$patch"
+          done
+      - name: Install the device configurations
+        run: cp devices/*.toml upstream/devices/
+      - name: Install the toolchain
+        run: |
+          rustup component add clippy
+          rustup target add aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream
+      - name: Install the Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+          add-to-path: false
+      - name: Point cargo-ndk at that NDK
+        env:
+          NDK: ${{ steps.ndk.outputs.ndk-path }}
+        run: echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk@4.1.2
+      - name: Build the recovery service and the packer
+        working-directory: upstream
+        run: |
+          cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
+          cargo build --locked --release -p skyward-pack
+          mkdir -p ../out
+      - name: Take the stock recovery partition
+        env:
+          STOCK_URL: ${{ vars.STOCK_BIXI_URL }}
+        run: |
+          mkdir -p stock
+          curl -fL --retry 3 --retry-delay 5 "$STOCK_URL" -o stock/recovery.img
+          want=$(python3 -c 'import tomllib; print(tomllib.load(open("manifest.toml","rb"))["stock"]["sha256"])')
+          echo "$want  stock/recovery.img" | sha256sum --check
+      - name: Pack the image on the stock recovery
+        working-directory: upstream
+        run: |
+          version="${{ github.ref_name }}"
+          if [ "${{ github.ref_type }}" != "tag" ]; then version="${GITHUB_SHA::7}"; fi
+          name="skyward-${version}-${{ matrix.variant }}-$(python3 -c 'import tomllib; print(tomllib.load(open("../manifest.toml","rb"))["stock"]["version"])')"
+          ./target/release/skyward-pack recovery \
+            --stock ../stock/recovery.img \
+            --binary target/aarch64-linux-android/release/skyward \
+            --config "${{ matrix.config }}" \
+            --font resources/fonts/MiSansVF.ttf \
+            --mono resources/fonts/KirkMono-Regular.ttf \
+            --mono-license resources/fonts/KirkMono-OFL.txt \
+            --out "../out/$name.img"
+          echo "NAME=$name" >> "$GITHUB_ENV"
+      - name: Zip the image
+        run: |
+          cd out
+          zip -9 "$NAME.zip" "$NAME.img"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.variant }}-image
+          path: out/*.zip
+          if-no-files-found: error
+          retention-days: 14
+

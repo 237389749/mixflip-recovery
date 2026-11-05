@@ -1,0 +1,10 @@
+# Patches are byte-exact input to `git apply`; a CRLF round trip breaks the
+# context lines. Everything else is text too, so a clone on any platform
+# reads the same.
+* text=auto
+*.patch text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf

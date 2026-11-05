@@ -1,0 +1,18 @@
+# Upstream checkouts used for local work. CI clones its own, pinned by
+# manifest.toml, so nothing here is tracked.
+/skyward/
+/twrp_device_xiaomi_sm8750_bixi/
+/twrp_device_xiaomi_sm8750_thales/
+/platform_manifest_twrp_aosp/
+/.work/
+
+# Build output and the stock images CI downloads.
+/out/
+/stock/
+*.img
+*.zip
+
+# Rust and editor noise.
+target/
+.DS_Store
+Thumbs.db

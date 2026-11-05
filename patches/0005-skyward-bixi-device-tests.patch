@@ -1,0 +1,64 @@
+diff --git a/crates/skyward-config/src/lib.rs b/crates/skyward-config/src/lib.rs
+index 7cf303c..e1fac38 100644
+--- a/crates/skyward-config/src/lib.rs
++++ b/crates/skyward-config/src/lib.rs
+@@ -734,6 +734,59 @@ mod tests {
+         assert_eq!(with("writes = []").unwrap().touch.device, None);
+     }
+ 
++    /// The two bixi configurations, read without the path checks
++    /// `DeviceConfig::parse` runs: those judge the phone's paths by the
++    /// host's rules, and a Windows host has no absolute path starting at
++    /// "/". The CI's Linux runner checks them through `skyward-pack`.
++    fn bixi(name: &str) -> DeviceConfig {
++        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../devices").join(name);
++        toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
++    }
++
++    #[test]
++    fn bixi_draws_on_the_inner_panel_by_default() {
++        let cfg = bixi("bixi.toml");
++        assert_eq!(cfg.device.model, "Xiaomi MIX Flip 2");
++        assert_eq!(cfg.device.codename, "bixi");
++        assert_eq!(cfg.display.panel.as_deref(), Some("1224x2912"), "the inner panel");
++        assert_eq!(cfg.display.backlight.as_deref(), Some("panel0-backlight"), "the inner panel's own");
++        assert_eq!(cfg.display.backlights_off, ["panel1-backlight"], "the cover panel is left dark");
++        assert_eq!((cfg.display.width, cfg.display.height, cfg.display.density), (1224, 2912, 520));
++        assert_eq!(cfg.touch.device.as_deref(), Some("synaptics"));
++        // Both panels' controllers load: one per panel, from two makers.
++        assert_eq!(cfg.modules.load, ["synaptics_tcm2", "goodix_core"]);
++        assert_eq!(cfg.firmware.as_ref().map(|f| f.partition.as_str()), Some("modem"));
++        assert_eq!(cfg.partitions.mounted, ["persist"]);
++    }
++
++    #[test]
++    fn bixi_cover_draws_on_the_cover_panel() {
++        let cfg = bixi("bixi-cover.toml");
++        assert_eq!(cfg.device.model, "Xiaomi MIX Flip 2");
++        assert_eq!(cfg.device.codename, "bixi", "the phone is still bixi");
++        assert_eq!(cfg.display.panel.as_deref(), Some("1208x1392"), "the cover panel");
++        assert_eq!(cfg.display.backlight.as_deref(), Some("panel1-backlight"), "the cover panel's own");
++        assert_eq!(cfg.display.backlights_off, ["panel0-backlight"], "the inner panel is left dark");
++        assert_eq!((cfg.display.width, cfg.display.height, cfg.display.density), (1208, 1392, 440));
++        assert_eq!(cfg.touch.device.as_deref(), Some("goodix"));
++        assert!(cfg.display.density < 520, "the stock density is set for the inner panel");
++    }
++
++    #[test]
++    fn bixi_names_every_program_its_bring_up_needs() {
++        let cfg = bixi("bixi.toml");
++        let services: Vec<&str> = cfg.services.iter().map(|s| s.path.as_str()).collect();
++        // The key service and what it also serves, the credential service,
++        // and the Weaver behind the secure element, which bixi's is NXP's.
++        assert!(services.contains(&"/vendor/bin/hw/android.hardware.security.keymint-service-qti"), "{services:?}");
++        assert!(services.contains(&"/vendor/bin/hw/android.hardware.gatekeeper-service-qti"), "{services:?}");
++        assert!(services.contains(&"/odm/bin/hw/android.hardware.weaver-service.nxp-qti"), "{services:?}");
++        assert!(services.iter().any(|s| s.ends_with("android.hardware.boot-service.qti.recovery")), "{services:?}");
++        assert!(cfg.wlan.is_some(), "the recovery brings the phone's WLAN up");
++        assert_eq!(cfg.backup.efs.len(), 5);
++        assert!(!cfg.wipe.logs.is_empty());
++    }
++
+     #[test]
+     fn a_click_is_kept_or_made_and_its_strengths_rise() {
+         let with = |body: &str| DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[haptics]\n{body}\n"));

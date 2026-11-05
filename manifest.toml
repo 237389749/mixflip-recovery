@@ -1,0 +1,34 @@
+# What the patches apply to. CI reads these; a local checkout should be at
+# the same commits before applying anything, or the patches may not fit.
+
+[skyward]
+url = "https://github.com/kirklin/skyward.git"
+ref = "c9deaf026eaf83fe2b9141dd656c256ddf42c8c1"
+version = "0.1.2"
+
+# bootable/recovery, for the twrpminui patch (0001).
+[twrp_recovery]
+url = "https://github.com/TWRP-Test/android_bootable_recovery.git"
+branch = "twrp-16.0"
+ref = "8a58fc3b586b8a908337fa87529cfbbb119ec7bb"
+
+# The bixi device tree (0002).
+[twrp_device]
+url = "https://github.com/daixu0502/twrp_device_xiaomi_sm8750_bixi.git"
+branch = "twrp-16.0-kernel6.6.139"
+ref = "9b4b445004006fc2ffbdfefbf7fc7e7758cf129a"
+
+# The stock build the skyward images are packed on. The recovery partition
+# is in the fastboot package beside this repository; CI needs it under a
+# URL instead (see docs/CI.md), and checks it against these numbers.
+[stock]
+version = "OS3.0.304.0.WOHCNXM"
+file = "../bixi_images_OS3.0.304.0/bixi_images_OS3.0.304.0.WOHCNXM_16.0/images/recovery.img"
+size = 104857600
+sha256 = "bc32c5fa4f4396fd52a4c65d03ea84bb147609812194da4eecf12723e5fafcd9"
+
+# For the panel facts in docs/CHANGES.md, so they can be re-derived when the
+# firmware changes: tools/dtbo_*.py read this file.
+[dtbo]
+file = "../bixi_images_OS3.0.304.0/bixi_images_OS3.0.304.0.WOHCNXM_16.0/images/dtbo.img"
+sha256 = "f73e842640971a9c43517a3292fd233f408b7a8ceb2bda84b41b07fb8cae18f3"
