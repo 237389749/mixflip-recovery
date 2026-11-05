@@ -38,6 +38,7 @@ echo "applied 0002"
 
 if command -v g++ >/dev/null && [ -f /usr/include/libdrm/xf86drmMode.h ]; then
     g++ -std=gnu++17 -fsyntax-only \
+        -D__unused=__attribute__\(\(unused\)\) \
         -I "$work/recovery/twrpminui/include" \
         -I "$work/recovery/twrpminui" \
         -I "$work/recovery/libpixelflinger/include" \

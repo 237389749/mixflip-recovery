@@ -16,7 +16,8 @@ CI 就是用来补这两个洞的。
 | `twrp` | 克隆 TWRP 16 的 `bootable/recovery` → 打 0001 → **`g++ -fsyntax-only` 编译 `graphics_drm.cpp`**（真源码 + libdrm + 桩头文件） | 一分钟 |
 | `image` | 可选：有 `STOCK_BIXI_URL` 时下载原厂 `recovery.img`、校验 sha256、`skyward-pack recovery` 出两个变体的 img 并 zip | 几分钟 |
 
-`image` 和 `preview` 都只在 push/tag 时跑；PR 只跑前三个。
+`image` 只在设置了 `STOCK_BIXI_URL` 时跑；PR 会跑 `skyward`、`preview`、`twrp` 三个 job，
+只是不出镜像。
 
 ## 2. 让 CI 能出镜像：`STOCK_BIXI_URL`
 

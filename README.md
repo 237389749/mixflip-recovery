@@ -61,3 +61,8 @@ CI 需要原厂 `recovery.img` 的下载地址，见 [docs/CI.md](docs/CI.md)。
 - [docs/CI.md](docs/CI.md) —— CI 能做什么、不能做什么
 - [docs/VERIFICATION.md](docs/VERIFICATION.md) —— 哪些验证过、哪些没有
 - [会话总结.md](会话总结.md)、[外屏recovery可行性与方案.md](外屏recovery可行性与方案.md)、[skyward外屏方案.md](skyward外屏方案.md) —— 过程记录
+
+## 许可
+
+补丁是 skyward（GPL-3.0）和 TWRP（GPL）的衍生改动，本仓库整体按 GPL-3.0 发布，
+见 [LICENSE](LICENSE)。

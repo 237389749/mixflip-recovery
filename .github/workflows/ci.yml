@@ -1,4 +1,4 @@
-﻿name: build
+name: build
 
 # Every push lints and tests the patched skyward, checks that the two bixi
 # configurations differ only where a variant may, renders both variants to
@@ -135,6 +135,7 @@ jobs:
       - name: Compile the patched DRM backend, syntax only
         run: |
           g++ -std=gnu++17 -fsyntax-only \
+            -D__unused=__attribute__\(\(unused\)\) \
             -I recovery/twrpminui/include \
             -I recovery/twrpminui \
             -I recovery/libpixelflinger/include \
