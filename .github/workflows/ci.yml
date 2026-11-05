@@ -1,4 +1,4 @@
-﻿name: build
+name: build
 
 # Every push lints and tests the patched skyward, checks that the two bixi
 # configurations differ only where a variant may, renders both variants to
@@ -150,7 +150,7 @@ jobs:
           git -C device apply --check "$GITHUB_WORKSPACE/patches/0002-bixi-let-the-recovery-choose-its-panel.patch"
 
   image:
-    name: Recovery image for ${{ matrix.variant }}
+    name: Recovery image
     runs-on: ubuntu-24.04
     needs: skyward
     # Only when a stock recovery is reachable; the build itself does not

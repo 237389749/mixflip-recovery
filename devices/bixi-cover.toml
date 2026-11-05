@@ -42,8 +42,8 @@ sources = ["vendor_boot", "vendor_dlkm", "vendor", "system_dlkm"]
 # One controller per panel, and the two are different parts: the inner
 # panel's is Synaptics TouchComm (synaptics_tcm@0 in the dtbo), the cover
 # panel's is Goodix Berlin (goodix_berlin@0). Each variant loads only the
-# controller on the panel it draws on: a driver whose panel is absent fails
-# to load, and a failed load stops the recovery before it draws anything.
+# controller on the panel it draws on: a driver whose panel is absent can
+# fail to load, and a failed load stops the recovery before it draws anything.
 # The driver depends on Xiaomi's touch layer, whose dependency the source's
 # modules.dep resolves.
 load = ["goodix_core"]

@@ -77,7 +77,7 @@ fastboot reboot recovery
   `no touch device is named "goodix"; taking /dev/input/eventX`。只有厂商栈额外把 Synaptics
   拉起来时，才可能选中内屏那颗，表现为“摸内屏控制外屏、摸外屏没反应”。**上机第一件事就是看这行日志。**
 
-> 为什么不在两个版本里都加载两个驱动：驱动在面板不存在时 probe 失败，`finit_module` 返回错误，
+> 为什么不在两个版本里都加载两个驱动：驱动在面板不存在时可能 probe 失败，`finit_module` 返回错误，
 > skyward 会把它当致命错误直接退出。单外屏机器上没有内屏，加载 Synaptics 是给自己埋雷。
 
 ### 4.4 不会 bootloop

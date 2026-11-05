@@ -2,6 +2,9 @@
 
 小米 MIX Flip 2（bixi）的 recovery 显示在外屏/内屏的可复现改动集，以及两个成品版本的构建方法。
 
+> 仓库：<https://github.com/237389749/mixflip-recovery>（私有；CI 已跑通，见 Actions）。
+> 私有仓库会消耗 Actions 分钟；改成公开则免费，代码里没有需要保密的东西。
+
 > 结论一句话：**能，但改的不是 ROM，是 recovery 自己的 DRM 选屏代码。**
 > fastboot 归 bootloader，仍然改不了；双屏同显也不支持。
 
@@ -37,7 +40,7 @@ git clone https://github.com/kirklin/skyward.git .work/skyward
 git -C .work/skyward checkout c9deaf026eaf83fe2b9141dd656c256ddf42c8c1
 
 # 2. 打补丁 + 放设备配置
-for p in patches/0003-*.patch patches/0004-*.patch patches/0005-*.patch; do
+for p in patches/000[3-6]-*.patch; do
   git -C .work/skyward apply "$PWD/$p"
 done
 cp devices/*.toml .work/skyward/devices/
