@@ -56,7 +56,8 @@
 
 ## 2. skyward 侧改动
 
-补丁：`0003`（选屏 + 背光 + 两处容错）、`0004`（触摸 + 另一块屏关背光）、`0005`（bixi 配置测试）。
+补丁：`0003`（选屏 + 背光 + 两处容错）、`0004`（触摸 + 另一块屏关背光）、`0005`（bixi 配置测试）、
+`0006`（短屏上“按住行”的裁切）。
 
 ### S1 选屏：`[display] panel`
 
@@ -135,6 +136,17 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 - 两份配置的 `[modules] load` 不同：各自只加载自己那块屏的触摸驱动（理由见 S6）；
 - `0005` 加三个测试：两份配置的面板/背光/触摸/模块/密度，以及 bixi 启动所需的服务清单。
 
+### S9 短屏上“按住行”的裁切
+
+| | |
+|---|---|
+| 文件 | `crates/skyward-ui/src/app.rs` `row_part` |
+| 原行为 | 只按整页宽高裁，不看当前 canvas 实际只画了哪一段行（band） |
+| 现行为 | 同时裁到 `canvas.held()` / `canvas.cols()`；整行不在 band 里就不画按压态，等它进入再画 |
+| 为什么 | 页是分 band 画的；1208×1392 的外屏上，按住一行靠近 band 边缘时 `crop` 越界，`assert` 直接把进程 abort |
+| 怎么发现 | `skyward-preview --device bixi-cover` 跑到 `70-erase` 页时 exit 134。**这是外屏尺寸第一次被真跑就抓到的 bug**，内屏 1224×2912 上不触发 |
+| 影响 | 两个变体都受益；只在短屏/band 边缘触发 |
+
 ---
 
 ## 3. TWRP 侧改动
@@ -198,6 +210,7 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 git -C .work/skyward diff c9deaf0 <commit-0003> > patches/0003-skyward-draw-on-a-named-panel.patch
 git -C .work/skyward diff <commit-0003> <commit-0004> > patches/0004-skyward-read-the-chosen-panels-touch.patch
 git -C .work/skyward diff <commit-0004> <commit-0005> -- . ':(exclude)devices' > patches/0005-skyward-bixi-device-tests.patch
+git -C .work/skyward diff <commit-0005> <commit-0006> > patches/0006-skyward-keep-a-held-row-inside-the-band.patch
 
 # TWRP
 git -C .work/recovery diff > patches/0001-twrpminui-name-the-panel-on-foldables.patch

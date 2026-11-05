@@ -1,0 +1,63 @@
+diff --git a/crates/skyward-ui/src/app.rs b/crates/skyward-ui/src/app.rs
+index 7852f52..9cbbed9 100644
+--- a/crates/skyward-ui/src/app.rs
++++ b/crates/skyward-ui/src/app.rs
+@@ -2355,10 +2355,16 @@ fn row_wide(t: &Theme, r: Rect) -> bool {
+ }
+ 
+ /// The whole pixels of the page's `canvas` a held row's `rect` covers:
+-/// left, top, width and height.
++/// left, top, width and height. A page is drawn a band of its rows at a
++/// time, so a row held near the edge of the band is taken only as far as
++/// the canvas holds it; what is not held is not drawn yet and is not the
++/// row's to crop.
+ fn row_part(r: Rect, canvas: &Canvas) -> (u32, u32, u32, u32) {
+-    let (x0, y0) = (r.x.floor().max(0.0) as u32, r.y.floor().max(0.0) as u32);
+-    let (x1, y1) = (((r.x + r.w).ceil() as u32).min(canvas.w), ((r.y + r.h).ceil() as u32).min(canvas.h));
++    let (held, cols) = (canvas.held(), canvas.cols());
++    let x0 = (r.x.floor().max(0.0) as u32).clamp(cols.start, cols.end);
++    let y0 = (r.y.floor().max(0.0) as u32).clamp(held.start, held.end);
++    let x1 = (((r.x + r.w).ceil() as u32).min(canvas.w)).clamp(x0, cols.end);
++    let y1 = (((r.y + r.h).ceil() as u32).min(canvas.h)).clamp(y0, held.end);
+     (x0, y0, x1 - x0, y1 - y0)
+ }
+ 
+@@ -3899,12 +3905,16 @@ impl App {
+         if let (Some(press), None) = (self.row_press.filter(|p| now >= p.rise), &self.row_art) {
+             let page = &self.frame.as_ref().expect("rendered above").canvas;
+             let (x, y, w, h) = row_part(press.rect, page);
+-            let pressed = t.pressed();
+-            let band = Band { rows: (y, y + h), cols: (x, x + w) };
+-            let cx = Ctx { t: &pressed, f, info, state: &self.state, term: self.term.as_ref(), band: Some(band) };
+-            let down = pages::render(screen, &cx).canvas;
+-            assert_eq!((down.w, down.h), (page.w, page.h), "a page held down is laid out as it was");
+-            self.row_art = Some((page.crop(x, y, w, h), down.crop(x, y, w, h)));
++            // A row scrolled out of what the page holds is not drawn yet;
++            // it shows pressed once the page holds it.
++            if w > 0 && h > 0 {
++                let pressed = t.pressed();
++                let band = Band { rows: (y, y + h), cols: (x, x + w) };
++                let cx = Ctx { t: &pressed, f, info, state: &self.state, term: self.term.as_ref(), band: Some(band) };
++                let down = pages::render(screen, &cx).canvas;
++                assert_eq!((down.w, down.h), (page.w, page.h), "a page held down is laid out as it was");
++                self.row_art = Some((page.crop(x, y, w, h), down.crop(x, y, w, h)));
++            }
+         }
+         let view = View {
+             scroll,
+@@ -7197,6 +7207,15 @@ mod tests {
+         assert_eq!(app.screen(), Screen::Home, "a scroll opens nothing");
+     }
+ 
++    #[test]
++    fn a_row_held_beyond_the_rows_a_page_holds_is_taken_only_as_far_as_it_goes() {
++        let page = Canvas::unfilled(100, 1000, 0..100);
++        let row = Rect { x: 10.0, y: 80.0, w: 80.0, h: 40.0 };
++        assert_eq!(row_part(row, &page), (10, 80, 80, 20), "the rows the page holds");
++        let below = Rect { x: 10.0, y: 500.0, w: 80.0, h: 40.0 };
++        assert_eq!(row_part(below, &page).3, 0, "a row the page does not hold yet");
++    }
++
+     #[test]
+     fn a_row_scrolled_away_from_before_it_darkens_never_shows_held() {
+         let (f, i) = (fonts(), info());

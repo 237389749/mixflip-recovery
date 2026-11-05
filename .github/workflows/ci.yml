@@ -1,4 +1,4 @@
-name: build
+﻿name: build
 
 # Every push lints and tests the patched skyward, checks that the two bixi
 # configurations differ only where a variant may, renders both variants to
@@ -41,7 +41,7 @@ jobs:
           git -C upstream checkout --quiet "$SKYWARD_REF"
       - name: Apply the patches
         run: |
-          for patch in patches/0003-*.patch patches/0004-*.patch patches/0005-*.patch; do
+          for patch in patches/000[3-6]-*.patch; do
             git -C upstream apply "$GITHUB_WORKSPACE/$patch"
           done
       - name: Install the device configurations
@@ -96,7 +96,7 @@ jobs:
           git -C upstream checkout --quiet "$SKYWARD_REF"
       - name: Apply the patches
         run: |
-          for patch in patches/0003-*.patch patches/0004-*.patch patches/0005-*.patch; do
+          for patch in patches/000[3-6]-*.patch; do
             git -C upstream apply "$GITHUB_WORKSPACE/$patch"
           done
       - name: Install the device configurations
@@ -174,7 +174,7 @@ jobs:
           git -C upstream checkout --quiet "$SKYWARD_REF"
       - name: Apply the patches
         run: |
-          for patch in patches/0003-*.patch patches/0004-*.patch patches/0005-*.patch; do
+          for patch in patches/000[3-6]-*.patch; do
             git -C upstream apply "$GITHUB_WORKSPACE/$patch"
           done
       - name: Install the device configurations
@@ -238,4 +238,5 @@ jobs:
           path: out/*.zip
           if-no-files-found: error
           retention-days: 14
+
 
