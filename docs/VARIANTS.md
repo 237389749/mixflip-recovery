@@ -43,6 +43,15 @@ fastboot reboot recovery
 回滚：同版本原厂 `recovery.img`（`manifest.toml` 里有 sha256）刷回去即可。recovery 分区
 不碰 userdata。
 
+> **刷之前，能 adb 就先确认背光归属**（原厂 recovery 或现在的 TWRP 都行）：
+>
+> ```bash
+> adb shell 'echo 100 > /sys/class/backlight/panel1-backlight/brightness'
+> ```
+>
+> 亮的是外屏 → `panel1` 是外屏，`bixi-cover` 的 `backlight` / `backlights_off` 正确；
+> 亮的是内屏 → 两个变体的这两项都要对调，否则外屏版会“把要画的屏关掉、去点亮另一块”——黑屏。
+
 ## 4. 单外屏版刷在“内屏还在”的机器上，会怎样
 
 先给结论：**能起、能画在外屏、不会 bootloop；但内屏不会自动熄灭到“断电”，触摸也只会走外屏。**
