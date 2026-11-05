@@ -120,7 +120,32 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
     [touch] device: 'synaptics' vs 'goodix'
 ```
 
-## 7. 完全没验证的（上机前必须知道）
+## 7. CI（GitHub Actions）
+
+最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42022057174> — **success**
+
+| job | 结果 | 证明了什么 |
+|---|---|---|
+| Lint and test the patched skyward | ✅ | Linux 上 `cargo clippy --workspace --all-targets -D warnings`、`cargo test --workspace`、Android 目标 clippy、两个变体一致性 |
+| Patch and compile-check twrpminui | ✅ | 0001 在真 TWRP 16 源码上 apply + `g++ -fsyntax-only`；0002 在设备树上 `git apply --check` |
+| Preview bixi | ✅ | 内屏 1224×2912 的所有页面渲染成 PNG（约 39 MB） |
+| Preview bixi-cover | ✅ | 外屏 1208×1392 的所有页面渲染成 PNG（约 29 MB） |
+| Recovery image | ⏭️ skipped | 没有设置 `STOCK_BIXI_URL`，CI 没有原厂 `recovery.img` |
+
+第一次跑抓到了三个真问题，都不是“读代码能看出来”的：
+
+1. **`g++` 没有 bionic 的 `__unused`**：TWRP 源码里 `minui_backend* backend __unused` 在 glibc 下报
+   “expected ',' before '__unused'”。CI 的编译命令加 `-D__unused=__attribute__((unused))` 后通过。
+2. **`root.join(&format!(...))`**：host clippy 的 `needless_borrows_for_generic_args` 直接 `-D warnings` 失败，
+   本地只跑 Android 目标时没覆盖到。改成 `root.join(format!(...))`。
+3. **外屏尺寸上 `crop` 越界 abort**：`skyward-preview --device bixi-cover` 跑到 `70-erase` 页时
+   `canvas.rs:424` 的 assert 失败、exit 134。原因是 `row_part` 只按整页尺寸裁，没考虑页面是分 band 画的。
+   补丁 `0006` 修掉，并加了一个 band 裁切的测试。
+
+这三点说明 CI 不只是“换台机器编译”，它实际覆盖了 Windows 编不了的 unix-only crate、只在 Linux 上跑的
+测试、以及外屏尺寸才会触发的布局路径。
+
+## 8. 完全没验证的（上机前必须知道）
 
 | 项 | 为什么没验 | 怎么验 |
 |---|---|---|
@@ -133,7 +158,7 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 | skyward 镜像打包 | Windows 上 `DeviceConfig::load` 路径语义失败 | CI 的 `image` job |
 | TWRP 全量编译 | 没有 AOSP 树 | 设备树仓库的 builder + 两个 apply |
 
-## 8. 诚实边界
+## 9. 诚实边界
 
 - `0003/0004/0005` 在 **Android 目标**上 clippy 干净，配置测试在本机 16 通过；
 - `0001` 在 **TWRP 16 真源码**上语法编译通过；

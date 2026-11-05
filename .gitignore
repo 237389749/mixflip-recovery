@@ -9,6 +9,7 @@
 # Build output and the stock images CI downloads.
 /out/
 /stock/
+/previews/
 *.img
 *.zip
 

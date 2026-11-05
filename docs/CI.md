@@ -1,5 +1,8 @@
 # CI：它替我们解决了什么，不解决什么
 
+当前状态：**全绿（`image` 因未设 `STOCK_BIXI_URL` 跳过）**，
+run：<https://github.com/237389749/mixflip-recovery/actions/runs/42022057174>。
+
 本地是 Windows：`skyward-preview`、`skyward-install`、`skyward-net` 这些 crate 依赖
 `std::os::unix` / `rustix` / `UnixAddr`，**在 Windows 上编不出来**；TWRP 更不可能在 Windows 上全量编。
 CI 就是用来补这两个洞的。

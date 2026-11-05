@@ -26,7 +26,7 @@
 | 触摸 | `synaptics`（只加载它） | `goodix`（只加载它） |
 | 适用 | 正常机器 | 内屏坏了/拆了，只看外屏 |
 
-两个版本只差 `[display]` 和 `[touch]` 里的几行，`ci/check-variants.py` 会强制检查“只差这些”，
+两个版本只差 `[display]`、`[touch]` 和 `[modules] load` 里的几行，`ci/check-variants.py` 会强制检查“只差这些”，
 防止两份配置各自漂移。
 
 ## 快速开始
@@ -59,6 +59,7 @@ CI 需要原厂 `recovery.img` 的下载地址，见 [docs/CI.md](docs/CI.md)。
 - [docs/CHANGES.md](docs/CHANGES.md) —— 改动点记载（先看这个）
 - [docs/VARIANTS.md](docs/VARIANTS.md) —— 两个版本与“插着内屏会怎样”
 - [docs/CI.md](docs/CI.md) —— CI 能做什么、不能做什么
+- [docs/UPSTREAM.md](docs/UPSTREAM.md) —— 哪些改动提 PR、哪些留本仓库
 - [docs/VERIFICATION.md](docs/VERIFICATION.md) —— 哪些验证过、哪些没有
 - [会话总结.md](会话总结.md)、[外屏recovery可行性与方案.md](外屏recovery可行性与方案.md)、[skyward外屏方案.md](skyward外屏方案.md) —— 过程记录
 

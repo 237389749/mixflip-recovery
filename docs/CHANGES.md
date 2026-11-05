@@ -189,12 +189,15 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | 项 | 状态 | 怎么验的 |
 |---|---|---|
 | skyward 改动编译（Android 目标） | ✅ | `cargo clippy -p skyward -p skyward-ui -p skyward-config --target aarch64-linux-android -- -D warnings` |
-| skyward-config 测试 | ⚠️ 未在 Linux 跑过 | 本机 Windows：16 passed / 15 failed（基线 9/15；那 15 个是 `Path::is_absolute()` 不认 `/data`，与改动无关）。Linux 全绿要等 CI 第一次跑 |
+| skyward 整个 workspace（Linux） | ✅ | CI：`cargo clippy --workspace --all-targets -D warnings` + `cargo test --workspace` 全绿 |
+| skyward-config 测试 | ✅ | Linux CI 全绿；本机 Windows 是 16 passed / 15 failed（基线 9/15，失败同为 `Path::is_absolute()` 的路径语义） |
 | 两份 bixi 配置解析 | ✅ | 0005 的三个测试 + `skyward-pack` 启动时 `DeviceConfig::load` |
 | 两个变体只差规定键 | ✅ | `ci/check-variants.py` |
+| 外屏 1208×1392 的排版 | ✅ | CI 的 `skyward-preview --device bixi-cover` 把全部页面渲染成 PNG；第一次跑抓到 `70-erase` 的 crop abort，由 0006 修掉 |
 | 补丁在干净树上应用 | ✅ | CI 每次从 `manifest.toml` 的 commit 重新 clone 再 apply |
 | TWRP `graphics_drm.cpp` 语法编译 | ✅ | g++ `-fsyntax-only` + 真 TWRP 16 源码 + 桩头文件 |
 | TWRP 完整编译进 recovery.img | ❌ | 需要 AOSP 树；见 [CI.md](CI.md) 的全量构建路线 |
+| skyward 镜像打包 | ⚠️ 未跑 | CI 的 `image` job 需要 `STOCK_BIXI_URL`；没设置时跳过 |
 | DRM 提交/点亮/触摸/背光真机行为 | ❌ | 没有真机回灌；只能按 [VARIANTS.md](VARIANTS.md) 的顺序上机验 |
 | `panel0/panel1` 背光归属 | ⚠️ 推定 | 从 DT 推的，必须上机 `echo` 一次确认 |
 | `goodix` / `synaptics` 的 evdev 名字 | ⚠️ 推定 | TWRP 的 `TW_INPUT_BLACKLIST="goodix_ts"` 证明 Goodix 侧；用子串匹配降低拼写风险 |
