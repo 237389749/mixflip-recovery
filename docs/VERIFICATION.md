@@ -104,6 +104,28 @@ sha256 f73e842640971a9c43517a3292fd233f408b7a8ceb2bda84b41b07fb8cae18f3
 
 `recovery.img` 的 sha256 与 `manifest.toml`、以及之前文档里的值一致。
 
+### 5.1 打包器在真实原厂镜像上跑通（Windows，烟测）
+
+`skyward-pack` 是 host 工具，Windows 能编。用一份**不含 POSIX 绝对路径**的临时配置
+（`.work/pack-test.toml`，只为绕开 Windows 的 `Path::is_absolute` 语义）和真实原厂
+`recovery.img` 跑：
+
+```text
+wrote ..\packout\test-recovery.img (0 bytes kernel, 43871962 bytes ramdisk, 104857600 bytes in all)
+size      104857600   （正好是原 recovery 分区大小）
+footer    AVBf
+entries   991
+  system/bin/recovery        1110  （烟测用占位二进制）
+  skyward/device.toml        435
+  skyward/MiSansVF.ttf       20093424
+  skyward/KirkMono-*.ttf     270456
+  system/etc/task_profiles.json, system/etc/init/skyward-mtp.rc
+```
+
+这证明：原厂 ramdisk 能解（LZ4，需要 `lz4` 在 PATH）、能替换 `/system/bin/recovery`、能塞配置/字体、
+能按整分区大小写回并补 AVB footer。**不证明**：塞进去的二进制能启动（烟测用的是占位文件），
+也不证明真机能过 AVB/开机。真正出包要 Linux + 两个正式配置 + 真正的 aarch64 skyward。
+
 ## 6. 变体一致性
 
 ```text

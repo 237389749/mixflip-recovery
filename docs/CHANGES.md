@@ -197,7 +197,7 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | 补丁在干净树上应用 | ✅ | CI 每次从 `manifest.toml` 的 commit 重新 clone 再 apply |
 | TWRP `graphics_drm.cpp` 语法编译 | ✅ | g++ `-fsyntax-only` + 真 TWRP 16 源码 + 桩头文件 |
 | TWRP 完整编译进 recovery.img | ❌ | 需要 AOSP 树；见 [CI.md](CI.md) 的全量构建路线 |
-| skyward 镜像打包 | ⚠️ 未跑 | CI 的 `image` job 需要 `STOCK_BIXI_URL`；没设置时跳过 |
+| skyward 镜像打包 | ⚠️ 机制已验证 / CI 未跑 | 本机 Windows 用真实原厂 `recovery.img` + 临时配置跑通 packer（104857600 字节、`AVBf`、991 entries）；CI 的 `image` job 仍需 `STOCK_BIXI_URL` |
 | DRM 提交/点亮/触摸/背光真机行为 | ❌ | 没有真机回灌；只能按 [VARIANTS.md](VARIANTS.md) 的顺序上机验 |
 | `panel0/panel1` 背光归属 | ⚠️ 推定 | 从 DT 推的，必须上机 `echo` 一次确认 |
 | `goodix` / `synaptics` 的 evdev 名字 | ⚠️ 推定 | TWRP 的 `TW_INPUT_BLACKLIST="goodix_ts"` 证明 Goodix 侧；用子串匹配降低拼写风险 |
