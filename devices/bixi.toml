@@ -35,9 +35,12 @@ backlights_off = ["panel1-backlight"]
 sources = ["vendor_boot", "vendor_dlkm", "vendor", "system_dlkm"]
 # One controller per panel, and the two are different parts: the inner
 # panel's is Synaptics TouchComm (synaptics_tcm@0 in the dtbo), the cover
-# panel's is Goodix Berlin (goodix_berlin@0). Both drivers depend on
-# Xiaomi's touch layer, whose dependency the source's modules.dep resolves.
-load = ["synaptics_tcm2", "goodix_core"]
+# panel's is Goodix Berlin (goodix_berlin@0). Each variant loads only the
+# controller on the panel it draws on: a driver whose panel is absent fails
+# to load, and a failed load stops the recovery before it draws anything.
+# The driver depends on Xiaomi's touch layer, whose dependency the source's
+# modules.dep resolves.
+load = ["synaptics_tcm2"]
 
 # The controller comes back from its reset sending raw frames for
 # /odm/lib64/libtouchreport.so, which a recovery runs none of; told through
@@ -45,8 +48,9 @@ load = ["synaptics_tcm2", "goodix_core"]
 # of the Synaptics controller; whether Goodix's answers the same switch is
 # not yet tried, and the write fails harmlessly where it does not exist.
 #
-# Both controllers' drivers are loaded, so both input devices exist; the
-# recovery reads touches from the inner panel's, which is this one's.
+# Only this panel's controller is loaded, so naming it is a guard rather
+# than a choice: if the vendor stack brings the other one up as well, the
+# recovery still reads touches from the inner panel's.
 [touch]
 device = "synaptics"
 writes = [{ path = "/sys/class/touch/touch_dev/enable_touch_raw", value = "0" }]

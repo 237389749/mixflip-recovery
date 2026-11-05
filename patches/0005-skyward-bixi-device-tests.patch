@@ -1,8 +1,8 @@
 diff --git a/crates/skyward-config/src/lib.rs b/crates/skyward-config/src/lib.rs
-index 7cf303c..e1fac38 100644
+index 7cf303c..e89aefc 100644
 --- a/crates/skyward-config/src/lib.rs
 +++ b/crates/skyward-config/src/lib.rs
-@@ -734,6 +734,59 @@ mod tests {
+@@ -734,6 +734,61 @@ mod tests {
          assert_eq!(with("writes = []").unwrap().touch.device, None);
      }
  
@@ -25,8 +25,9 @@ index 7cf303c..e1fac38 100644
 +        assert_eq!(cfg.display.backlights_off, ["panel1-backlight"], "the cover panel is left dark");
 +        assert_eq!((cfg.display.width, cfg.display.height, cfg.display.density), (1224, 2912, 520));
 +        assert_eq!(cfg.touch.device.as_deref(), Some("synaptics"));
-+        // Both panels' controllers load: one per panel, from two makers.
-+        assert_eq!(cfg.modules.load, ["synaptics_tcm2", "goodix_core"]);
++        // Only this panel's controller is loaded; the driver's own
++        // dependency on Xiaomi's touch layer comes from modules.dep.
++        assert_eq!(cfg.modules.load, ["synaptics_tcm2"]);
 +        assert_eq!(cfg.firmware.as_ref().map(|f| f.partition.as_str()), Some("modem"));
 +        assert_eq!(cfg.partitions.mounted, ["persist"]);
 +    }
@@ -41,6 +42,7 @@ index 7cf303c..e1fac38 100644
 +        assert_eq!(cfg.display.backlights_off, ["panel0-backlight"], "the inner panel is left dark");
 +        assert_eq!((cfg.display.width, cfg.display.height, cfg.display.density), (1208, 1392, 440));
 +        assert_eq!(cfg.touch.device.as_deref(), Some("goodix"));
++        assert_eq!(cfg.modules.load, ["goodix_core"], "the cover panel's controller only");
 +        assert!(cfg.display.density < 520, "the stock density is set for the inner panel");
 +    }
 +

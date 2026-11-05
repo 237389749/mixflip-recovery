@@ -37,6 +37,7 @@
 | `[display] backlight` | `panel0-backlight` | `panel1-backlight` |
 | `[display] backlights_off` | `["panel1-backlight"]` | `["panel0-backlight"]` |
 | `[touch] device` | `synaptics` | `goodix` |
+| `[modules] load` | `["synaptics_tcm2"]` | `["goodix_core"]` |
 | `[display] width/height` | 1224×2912 | 1208×1392 |
 | `[display] density` | 520（原厂值） | 440（外屏近方形，原厂值偏大） |
 | `[display] diagonal` | 6.86 | 4.01 |
@@ -110,6 +111,10 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | 现行为 | 配置里给名字片段（`synaptics` / `goodix`），取名字包含它的那个；都不匹配才回退第一个并告警 |
 | 为什么 | bixi 一块屏一个触摸 IC，两个驱动都加载时谁先枚举谁被选中。**这是两个版本必须区分的第二个维度**，只改显示不改触摸 = 摸外屏没反应、摸内屏控制外屏 |
 
+另外每个变体只加载自己那块屏的触摸驱动（`[modules] load`）：驱动在面板不存在时 probe 失败，
+`finit_module` 会返回错误，而 skyward 把加载失败当致命错误 —— 会在画出第一帧之前就退出。
+“两块都加载、运行时再选”听起来更灵活，代价是没内屏的机器可能连外屏都起不来。
+
 ### S7 另一块屏关背光：`[display] backlights_off`
 
 | | |
@@ -127,7 +132,8 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 
 - `devices/bixi.toml`、`devices/bixi-cover.toml`：本仓库提供，不打进补丁（上游 CI 没有原厂包，
   把 `bixi.toml` 提交上游会让它的 devices 矩阵变红）；
-- `0005` 加三个测试：两份配置的面板/背光/触摸/密度，以及 bixi 启动所需的服务清单。
+- 两份配置的 `[modules] load` 不同：各自只加载自己那块屏的触摸驱动（理由见 S6）；
+- `0005` 加三个测试：两份配置的面板/背光/触摸/模块/密度，以及 bixi 启动所需的服务清单。
 
 ---
 

@@ -23,7 +23,7 @@
 | 画在哪 | 内屏 1224×2912 | 外屏 1208×1392 |
 | 背光 | `panel0-backlight` | `panel1-backlight` |
 | 另一块屏 | 背光关掉 | 背光关掉 |
-| 触摸 | `synaptics` | `goodix` |
+| 触摸 | `synaptics`（只加载它） | `goodix`（只加载它） |
 | 适用 | 正常机器 | 内屏坏了/拆了，只看外屏 |
 
 两个版本只差 `[display]` 和 `[touch]` 里的几行，`ci/check-variants.py` 会强制检查“只差这些”，

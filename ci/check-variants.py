@@ -36,6 +36,7 @@ VARIANT_KEYS = {
     ("display", "diagonal"),
     ("display", "corner_radius"),
     ("touch", "device"),
+    ("modules", "load"),
 }
 
 # What each variant must actually say, so a copy-paste edit that changes the
@@ -49,6 +50,7 @@ EXPECTED = {
         "display.height": 2912,
         "display.density": 520,
         "touch.device": "synaptics",
+        "modules.load": ["synaptics_tcm2"],
     },
     "bixi-cover": {
         "display.panel": "1208x1392",
@@ -58,6 +60,7 @@ EXPECTED = {
         "display.height": 1392,
         "display.density": 440,
         "touch.device": "goodix",
+        "modules.load": ["goodix_core"],
     },
 }
 

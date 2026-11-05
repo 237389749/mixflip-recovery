@@ -106,7 +106,7 @@ index ee23eaf..a40d12c 100644
 +        Some(k) => args.get(k + 1).ok_or_else(|| anyhow!("--device needs a codename"))?.clone(),
 +        None => "nezha".to_string(),
 +    };
-+    let config = root.join(&format!("devices/{device}.toml"));
++    let config = root.join(format!("devices/{device}.toml"));
 +    let cfg = DeviceConfig::load(&config)?;
      let (w, h) = (cfg.display.width, cfg.display.height);
      let ppd = cfg.display.density as f32 / 160.0;

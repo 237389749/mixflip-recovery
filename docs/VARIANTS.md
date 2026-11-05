@@ -67,15 +67,18 @@ fastboot reboot recovery
 > 要彻底断电，得像 `bixi-cover-display-cleanup` 那样 `force_disable` 外屏/内屏的 VCI regulator。
 > skyward 不跑那个程序；这是已知限制。
 
-### 4.3 触摸：只认外屏那颗 Goodix
+### 4.3 触摸：只加载、只读外屏那颗 Goodix
 
-`[touch] device = "goodix"`，所以：
+`[modules] load = ["goodix_core"]` + `[touch] device = "goodix"`，所以：
 
 - 合盖状态摸外屏 → 正常；
-- 展开状态摸内屏 → **没有反应**（内屏的 Synaptics 设备存在，但 recovery 不读它）；
-- 如果这颗内核的 evdev 名字里没有 `goodix`（拼写不同），会回退到“第一个多点触摸设备”并打一行
-  `no touch device is named "goodix"; taking /dev/input/eventX`。这时可能选中内屏那颗，
-  表现为“摸内屏控制外屏、摸外屏没反应”。**上机第一件事就是看这行日志。**
+- 展开状态摸内屏 → **没有反应**：内屏的 `synaptics_tcm2` 根本没加载，不是“加载了但不读”；
+- 如果内核把 Goodix 的 evdev 名字拼成别的（不含 `goodix`），会回退到“第一个多点触摸设备”并打一行
+  `no touch device is named "goodix"; taking /dev/input/eventX`。只有厂商栈额外把 Synaptics
+  拉起来时，才可能选中内屏那颗，表现为“摸内屏控制外屏、摸外屏没反应”。**上机第一件事就是看这行日志。**
+
+> 为什么不在两个版本里都加载两个驱动：驱动在面板不存在时 probe 失败，`finit_module` 返回错误，
+> skyward 会把它当致命错误直接退出。单外屏机器上没有内屏，加载 Synaptics 是给自己埋雷。
 
 ### 4.4 不会 bootloop
 
