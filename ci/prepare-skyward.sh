@@ -26,7 +26,7 @@ git -C "$sky" fetch --quiet origin "$ref"
 git -C "$sky" checkout --quiet --force "$ref"
 git -C "$sky" clean -fdq
 
-for patch in "$root"/patches/000[3-6]-*.patch; do
+for patch in "$root"/patches/000[3-7]-*.patch; do
     git -C "$sky" apply "$patch"
     echo "applied $(basename "$patch")"
 done

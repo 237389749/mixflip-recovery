@@ -12,7 +12,7 @@
 
 ### 1.1 打包时追加的属性
 
-`skyward-pack recovery` 在 stock 的 `prop.default` **末尾**追加：
+`skyward-pack recovery` 先把 stock 里相反的三个属性**删掉**，再在 `prop.default` 末尾追加：
 
 ```properties
 ro.secure=0
@@ -21,9 +21,10 @@ ro.debuggable=1
 ro.ota.allow_downgrade=true
 ```
 
-原厂文件里本来有 `ro.secure=1` / `ro.adb.secure=1` / `ro.debuggable=0`，但 **init 允许同一个
-属性文件里后面的行覆盖前面的行**（skyward 上游就是这么做的，README 也写明“adb 是 root shell，
-手机上无需授权”）。三者的作用：
+这是本仓库的补丁 `0007`：原厂文件本来有 `ro.secure=1` / `ro.adb.secure=1` / `ro.debuggable=0`，
+上游原来的做法是直接追加、靠“同一属性文件里后面的行覆盖前面的行”生效。**我们不再依赖这个语义**，
+把这 6 个属性（3 个 build version + 3 个 adb）先删掉再写，结果里没有重复行。
+三者作用：
 
 | 属性 | 值 | 作用 |
 |---|---|---|

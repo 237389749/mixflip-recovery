@@ -43,6 +43,7 @@ tools/skyward-pack stock --config devices/<codename>.toml   # 需要一个 HTTPS
 | 6 | `[touch] device` | 0004 |
 | 7 | `[display] backlights_off` | 0004 |
 | 8 | 短屏按住行的 band 裁切 | 0006 |
+| 9 | 打包时去掉 stock 的 `ro.secure` / `ro.adb.secure` / `ro.debuggable`，不靠重复行覆盖 | 0007 |
 
 `0005`（bixi 配置测试）**不要提**：它 `include_str!` 了本仓库的 `devices/*.toml`，上游没有这两个文件。
 

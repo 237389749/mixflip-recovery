@@ -1,0 +1,94 @@
+diff --git a/crates/skyward-pack/src/main.rs b/crates/skyward-pack/src/main.rs
+index c669288..8e5fd1e 100644
+--- a/crates/skyward-pack/src/main.rs
++++ b/crates/skyward-pack/src/main.rs
+@@ -127,15 +127,17 @@ fn main() -> Result<()> {
+             rd.add(paths::MTP_RC, 0o644, MTP_RC.to_vec())?;
+             // On an unlocked device adbd keeps root when ro.secure is 0 and
+             // lets any computer in without authorization when ro.adb.secure is
+-            // 0; init lets a later line of a property file override an earlier
+-            // one. update_engine refuses a package built before the recovery
+-            // itself unless both of the last two are set; the recovery checks
++            // 0. The stock file already carries the opposite values, and which
++            // of two lines init takes is not something to leave to chance: the
++            // names are taken out before the recovery's own lines go in.
++            // update_engine refuses a package built before the recovery itself
++            // unless both of the last two are set; the recovery checks
+             // packages against the installed system instead.
+             let stock_props = &rd
+                 .find(paths::PROP_DEFAULT)
+                 .with_context(|| format!("{} is not in the ramdisk", paths::PROP_DEFAULT))?
+                 .data;
+-            let mut props = without(stock_props, &BUILD_VERSION);
++            let mut props = without(stock_props, &REPLACED);
+             props.extend_from_slice(b"\nro.secure=0\nro.adb.secure=0\nro.debuggable=1\nro.ota.allow_downgrade=true\n");
+             rd.replace(paths::PROP_DEFAULT, props)?;
+             img.ramdisk = rd.encode()?;
+@@ -202,14 +204,27 @@ fn partition_size(stock: &Path) -> Result<usize> {
+     Ok(usize::try_from(size)?)
+ }
+ 
+-/// What a recovery image says about the build it is: the version and patch
+-/// levels of its own ramdisk's system and vendor partition, which are older
+-/// than those installed beside it whenever the phone has taken an update.
+-/// The phone's secure services read these to tell the secure world which
+-/// build is running, and keys the installed system made are refused when
+-/// they say the wrong one, so they are left out here for the recovery to
+-/// fill in from the installed system once it has that mounted.
+-const BUILD_VERSION: [&str; 3] = ["ro.build.version.release", "ro.build.version.security_patch", "ro.vendor.build.security_patch"];
++/// Properties the recovery sets itself that the stock file may already carry.
++///
++/// The first three are the build's version and patch levels of its own
++/// ramdisk's system and vendor partition, which are older than those
++/// installed beside it whenever the phone has taken an update. The phone's
++/// secure services read these to tell the secure world which build is
++/// running, and keys the installed system made are refused when they say the
++/// wrong one, so they are left out here for the recovery to fill in from the
++/// installed system once it has that mounted.
++///
++/// The last three decide whether adbd keeps root and whether a computer is
++/// asked to authorize; the stock file carries the opposite values, and which
++/// of two lines init takes is not left to chance.
++const REPLACED: [&str; 6] = [
++    "ro.build.version.release",
++    "ro.build.version.security_patch",
++    "ro.vendor.build.security_patch",
++    "ro.secure",
++    "ro.adb.secure",
++    "ro.debuggable",
++];
+ 
+ /// The scheduling profiles a recovery's programs look up by name. A
+ /// recovery's cgroup setup mounts no controllers, so of all a system's
+@@ -273,14 +288,17 @@ mod tests {
+     #[test]
+     fn the_lines_that_set_a_name_are_the_only_ones_left_out() {
+         let props = b"ro.build.id=TQ\nro.build.version.release=13\nro.build.version.release_or_codename=13\nro.product.name=ishtar\n\
+-ro.vendor.build.security_patch=2026-10-01\nro.vendor.build.security_patch_level=1\n";
+-        let out = without(props, &BUILD_VERSION);
++ro.vendor.build.security_patch=2026-10-01\nro.vendor.build.security_patch_level=1\n\
++ro.secure=1\nro.adb.secure=1\nro.debuggable=0\nro.secure=0\n";
++        let out = without(props, &REPLACED);
+         let text = String::from_utf8(out).expect("property files are text");
+         assert!(!text.contains("ro.build.version.release=13"));
+         assert!(!text.contains("ro.vendor.build.security_patch=2026-10-01"), "the vendor partition's patch level is left out too");
+         assert!(text.contains("ro.build.version.release_or_codename=13"), "a longer name is left alone");
+         assert!(text.contains("ro.vendor.build.security_patch_level=1"), "a longer name is left alone");
+         assert!(text.contains("ro.build.id=TQ") && text.contains("ro.product.name=ishtar"));
++        assert!(!text.contains("ro.secure") && !text.contains("ro.adb.secure") && !text.contains("ro.debuggable"),
++                "every stock line that lets adbd drop root or ask to authorize is gone, not just the first");
+     }
+ 
+     #[test]
+@@ -336,9 +354,9 @@ ro.vendor.build.security_patch=2026-10-01\nro.vendor.build.security_patch_level=
+ 
+     #[test]
+     fn a_file_without_a_last_newline_keeps_its_last_line() {
+-        let out = without(b"a=1\nro.build.version.release=13", &BUILD_VERSION);
++        let out = without(b"a=1\nro.build.version.release=13", &REPLACED);
+         assert_eq!(out, b"a=1\n");
+-        let kept = without(b"a=1\nb=2", &BUILD_VERSION);
++        let kept = without(b"a=1\nb=2", &REPLACED);
+         assert_eq!(kept, b"a=1\nb=2");
+     }
+ }

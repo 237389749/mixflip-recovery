@@ -57,7 +57,7 @@
 ## 2. skyward 侧改动
 
 补丁：`0003`（选屏 + 背光 + 两处容错）、`0004`（触摸 + 另一块屏关背光）、`0005`（bixi 配置测试）、
-`0006`（短屏上“按住行”的裁切）。
+`0006`（短屏上“按住行”的裁切）、`0007`（去掉 stock 的 adb 属性）。
 
 ### S1 选屏：`[display] panel`
 
@@ -147,13 +147,23 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | 怎么发现 | `skyward-preview --device bixi-cover` 跑到 `70-erase` 页时 exit 134。**这是外屏尺寸第一次被真跑就抓到的 bug**，内屏 1224×2912 上不触发 |
 | 影响 | 两个变体都受益；只在短屏/band 边缘触发 |
 
+### S10 去掉 stock 的 adb 属性
+
+| | |
+|---|---|
+| 文件 | `crates/skyward-pack/src/main.rs` |
+| 原行为 | 只在 `prop.default` 末尾追加 `ro.secure=0` 等，stock 原有的 `ro.secure=1` / `ro.adb.secure=1` / `ro.debuggable=0` 还在，靠“同一文件后面的行覆盖前面的”生效 |
+| 现行为 | 先用 `without()` 把这 6 个属性（3 个 build version + 3 个 adb）删掉，再追加 0/0/1；结果里没有重复行 |
+| 为什么 | 外屏可能全黑，adb 是唯一入口；把“能不能 root”压在一个未在本机验证的 init 行为上不值得 |
+| 验证 | `cargo test -p skyward-pack` 7 passed；重新打包后 `prop.default` 只剩 `ro.secure=0` / `ro.adb.secure=0` / `ro.debuggable=1`，`check-recovery-adb.py` PASS |
+
 ### P1 默认 adb / root（上游行为，本仓库负责核验）
 
 不是我们写的补丁，但外屏可能全黑，这条是“能不能用”的前提，所以列进改动记载并加了自动检查：
 
 | | |
 |---|---|
-| 谁做的 | `skyward-pack` 在 `prop.default` 末尾追加 `ro.secure=0` / `ro.adb.secure=0` / `ro.debuggable=1` |
+| 谁做的 | `skyward-pack` 先删掉 stock 里相反的值，再追加 `ro.secure=0` / `ro.adb.secure=0` / `ro.debuggable=1`（0007） |
 | 启动链 | 原厂 `init.rc` 的 `service adbd … user root`；`sys.usb.config=adb` 时 `start adbd`；skyward 在加载配置/起 UI **之前**就把 `sys.usb.config` 设成 `adb` |
 | 结果 | 插 USB 即 `adb`，无授权弹窗，`adb shell` 是 uid 0 |
 | `su` | 原厂 ramdisk 没有 `su`，toybox 也没编；不需要，`adb shell` 本身是 root |
@@ -224,11 +234,12 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 补丁不是手写的，是 `git diff` 出来的。改完代码后：
 
 ```bash
-# skyward：基线 c9deaf0，三个 commit 分别对应 0003/0004/0005
+# skyward：基线 c9deaf0，各 commit 依次对应 0003–0007
 git -C .work/skyward diff c9deaf0 <commit-0003> > patches/0003-skyward-draw-on-a-named-panel.patch
 git -C .work/skyward diff <commit-0003> <commit-0004> > patches/0004-skyward-read-the-chosen-panels-touch.patch
 git -C .work/skyward diff <commit-0004> <commit-0005> -- . ':(exclude)devices' > patches/0005-skyward-bixi-device-tests.patch
 git -C .work/skyward diff <commit-0005> <commit-0006> > patches/0006-skyward-keep-a-held-row-inside-the-band.patch
+git -C .work/skyward diff <commit-0006> <commit-0007> > patches/0007-skyward-pack-take-the-stock-adb-properties-out.patch
 
 # TWRP
 git -C .work/recovery diff > patches/0001-twrpminui-name-the-panel-on-foldables.patch

@@ -126,6 +126,33 @@ entries   991
 能按整分区大小写回并补 AVB footer。**不证明**：塞进去的二进制能启动（烟测用的是占位文件），
 也不证明真机能过 AVB/开机。真正出包要 Linux + 两个正式配置 + 真正的 aarch64 skyward。
 
+### 5.2 默认 adb / root（0007 之后重新打包核验）
+
+`0007` 让打包器先删掉 stock 的 `ro.secure=1` / `ro.adb.secure=1` / `ro.debuggable=0`，再写 0/0/1。
+重新打包后 `prop.default` 里只剩：
+
+```
+ro.secure=0
+ro.adb.secure=0
+ro.debuggable=1
+```
+
+`tools/check-recovery-adb.py` 对这张镜像：
+
+```text
+ok   system/bin/adbd is in the ramdisk
+ok   ro.secure=0 (last line)
+ok   ro.adb.secure=0 (last line)
+ok   ro.debuggable=1 (last line)
+ok   init.rc defines the adbd service
+ok   adbd runs as root
+ok   init.rc starts adbd when sys.usb.config is adb
+note no su binary; adbd is already root, so `adb shell` is root
+PASS: adb is on by default, as root, with no authorization prompt
+```
+
+`cargo test -p skyward-pack`：7 passed（其中新增的断言检查 6 个属性都被删掉，而不只是第一处）。
+
 ## 6. 变体一致性
 
 ```text
@@ -182,7 +209,8 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 
 ## 9. 诚实边界
 
-- `0003/0004/0005` 在 **Android 目标**上 clippy 干净，配置测试在本机 16 通过；
+- `0003`–`0007` 在 **Android 目标**（前四个）和 **Windows host**（`skyward-pack`）上编译/测试通过，
+  配置测试本机 16 通过、pack 测试 7 通过；
 - `0001` 在 **TWRP 16 真源码**上语法编译通过；
 - `0002` 只做了 `git apply --check`；
 - **没有任何一行在真机上跑过**；

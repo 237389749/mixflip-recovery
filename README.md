@@ -40,7 +40,7 @@ git clone https://github.com/kirklin/skyward.git .work/skyward
 git -C .work/skyward checkout c9deaf026eaf83fe2b9141dd656c256ddf42c8c1
 
 # 2. 打补丁 + 放设备配置
-for p in patches/000[3-6]-*.patch; do
+for p in patches/000[3-7]-*.patch; do
   git -C .work/skyward apply "$PWD/$p"
 done
 cp devices/*.toml .work/skyward/devices/
