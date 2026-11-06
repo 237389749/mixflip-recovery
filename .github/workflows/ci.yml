@@ -151,8 +151,10 @@ jobs:
           git -C device apply "$GITHUB_WORKSPACE/patches/0002b-bixi-cover-panel-variant.patch"
       # The two variants differ only in variables make resolves; this asks
       # make itself, with the patched tree, rather than reading the file.
+      # The tree is the one just checked out as device/, not the repository's
+      # own copy beside this checkout.
       - name: Check both panel variants resolve as intended
-        run: python3 tools/check-twrp-variants.py
+        run: python3 tools/check-twrp-variants.py device
       # The program that lights the panel the recovery draws on runs before
       # the recovery starts, so it has to build on its own. It is the same
       # source for both variants: the panel is chosen at runtime from
