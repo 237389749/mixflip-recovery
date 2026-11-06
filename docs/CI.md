@@ -1,7 +1,8 @@
 # CI：它替我们解决了什么，不解决什么
 
-当前状态：**全绿，6 个 job 全过，含出包**，
-run：<https://github.com/237389749/mixflip-recovery/actions/runs/42220039542>（2026-11-06，`cb8fcc4`）。
+当前状态：**main 上每次 push 全绿：6 个 job，含出包**。
+本文引用的出包证据是这一次：<https://github.com/237389749/mixflip-recovery/actions/runs/42220039542>
+（2026-11-06，`cb8fcc4`，加了镜像内配置核验之后的那次）。之后只改文档的 push 也全绿，但证据以那次为准。
 
 本地是 Windows：`skyward-preview`、`skyward-install`、`skyward-net` 这些 crate 依赖
 `std::os::unix` / `rustix` / `UnixAddr`，**在 Windows 上编不出来**；TWRP 更不可能在 Windows 上全量编。

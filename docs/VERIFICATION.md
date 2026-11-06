@@ -174,8 +174,8 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 
 ## 7. CI（GitHub Actions）
 
-最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42220039542> — **success**
-（6 个 job 全过，2026-11-06，`cb8fcc4`；这是加了镜像内配置核验之后的那次）
+引用的 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42220039542> — **success**
+（6 个 job 全过，2026-11-06，`cb8fcc4`；加了镜像内配置核验之后的那次。之后只改文档的 push 也全绿，证据以这次为准。）
 
 | job | 结果 | 证明了什么 |
 |---|---|---|
