@@ -61,6 +61,7 @@ CI 需要原厂 `recovery.img` 的下载地址，见 [docs/CI.md](docs/CI.md)。
 
 - [docs/CHANGES.md](docs/CHANGES.md) —— 改动点记载（先看这个）
 - [docs/VARIANTS.md](docs/VARIANTS.md) —— 两个版本与“插着内屏会怎样”
+- [docs/ADB_AND_ROOT.md](docs/ADB_AND_ROOT.md) —— 默认 adb / root、为什么没有 su、怎么验
 - [docs/CI.md](docs/CI.md) —— CI 能做什么、不能做什么
 - [docs/UPSTREAM.md](docs/UPSTREAM.md) —— 哪些改动提 PR、哪些留本仓库
 - [docs/VERIFICATION.md](docs/VERIFICATION.md) —— 哪些验证过、哪些没有

@@ -147,6 +147,19 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | 怎么发现 | `skyward-preview --device bixi-cover` 跑到 `70-erase` 页时 exit 134。**这是外屏尺寸第一次被真跑就抓到的 bug**，内屏 1224×2912 上不触发 |
 | 影响 | 两个变体都受益；只在短屏/band 边缘触发 |
 
+### P1 默认 adb / root（上游行为，本仓库负责核验）
+
+不是我们写的补丁，但外屏可能全黑，这条是“能不能用”的前提，所以列进改动记载并加了自动检查：
+
+| | |
+|---|---|
+| 谁做的 | `skyward-pack` 在 `prop.default` 末尾追加 `ro.secure=0` / `ro.adb.secure=0` / `ro.debuggable=1` |
+| 启动链 | 原厂 `init.rc` 的 `service adbd … user root`；`sys.usb.config=adb` 时 `start adbd`；skyward 在加载配置/起 UI **之前**就把 `sys.usb.config` 设成 `adb` |
+| 结果 | 插 USB 即 `adb`，无授权弹窗，`adb shell` 是 uid 0 |
+| `su` | 原厂 ramdisk 没有 `su`，toybox 也没编；不需要，`adb shell` 本身是 root |
+| 核验 | `tools/check-recovery-adb.py` 检查打出来的镜像（adbd、属性最后一行、init 规则）；CI 的 `image` job 出包后自动跑 |
+| 细节 | [ADB_AND_ROOT.md](ADB_AND_ROOT.md) |
+
 ---
 
 ## 3. TWRP 侧改动
@@ -198,6 +211,8 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | TWRP `graphics_drm.cpp` 语法编译 | ✅ | g++ `-fsyntax-only` + 真 TWRP 16 源码 + 桩头文件 |
 | TWRP 完整编译进 recovery.img | ❌ | 需要 AOSP 树；见 [CI.md](CI.md) 的全量构建路线 |
 | skyward 镜像打包 | ⚠️ 机制已验证 / CI 未跑 | 本机 Windows 用真实原厂 `recovery.img` + 临时配置跑通 packer（104857600 字节、`AVBf`、991 entries）；CI 的 `image` job 仍需 `STOCK_BIXI_URL` |
+| 默认 adb / root（镜像层） | ✅ | `tools/check-recovery-adb.py` 对烟测镜像 PASS：adbd 在、`ro.*` 最后一行 0/0/1、init 以 root 起 adbd |
+| 默认 adb / root（真机） | ❌ | 需上机 `adb devices` / `adb shell id` 确认 |
 | DRM 提交/点亮/触摸/背光真机行为 | ❌ | 没有真机回灌；只能按 [VARIANTS.md](VARIANTS.md) 的顺序上机验 |
 | `panel0/panel1` 背光归属 | ⚠️ 推定 | 从 DT 推的，必须上机 `echo` 一次确认 |
 | `goodix` / `synaptics` 的 evdev 名字 | ⚠️ 推定 | TWRP 的 `TW_INPUT_BLACKLIST="goodix_ts"` 证明 Goodix 侧；用子串匹配降低拼写风险 |

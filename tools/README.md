@@ -36,3 +36,20 @@ bixi_images_OS3.0.304.0\bixi_images_OS3.0.304.0.WOHCNXM_16.0\images\dtbo.img
 | DSC | 2 LM，612×32，8bpp | 2 LM，604×12，8bpp |
 | 触摸 IC | `synaptics_tcm2` (`synaptics_tcm@0`) | `goodix_core` (`goodix_berlin@0`) |
 | 触摸→面板 | phandle 0x122 → prim | phandle 0x123 → sec |
+
+## recovery 镜像检查（不是 dtbo）
+
+`check-recovery-adb.py` 检查**打出来的 recovery 镜像**是否默认开 adb、是否 root：
+
+```powershell
+python tools\check-recovery-adb.py <recovery.img> --pack <skyward-pack.exe>
+```
+
+它读 ramdisk 里的 `system/bin/adbd`、`prop.default`、`init.rc`，确认：
+
+- adbd 存在，服务以 `user root` 运行；
+- `ro.secure` / `ro.adb.secure` / `ro.debuggable` 的**最后一行**是 0/0/1；
+- `sys.usb.config=adb` 时会 `start adbd`。
+
+CI 的 `image` job 出包后会自动跑它。为什么没有 `su`、为什么不需要，见
+[../docs/ADB_AND_ROOT.md](../docs/ADB_AND_ROOT.md)。
