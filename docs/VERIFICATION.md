@@ -174,8 +174,8 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 
 ## 7. CI（GitHub Actions）
 
-最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42217087330> — **success**
-（6 个 job 全过，2026-11-06，`c0f526d`）
+最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42220039542> — **success**
+（6 个 job 全过，2026-11-06，`cb8fcc4`；这是加了镜像内配置核验之后的那次）
 
 | job | 结果 | 证明了什么 |
 |---|---|---|
@@ -183,8 +183,8 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 | Patch and compile-check twrpminui | ✅ | 0001 在真 TWRP 16 源码上 apply + `g++ -fsyntax-only`；0002+0002b 在设备树上依次 apply；`check-twrp-variants.py` 用真 make 验两个变体；显示程序 `gcc -Wall -Wextra -Werror` 编译 |
 | Preview bixi | ✅ | 内屏 1224×2912 的所有页面渲染成 PNG（约 39 MB） |
 | Preview bixi-cover | ✅ | 外屏 1208×1392 的所有页面渲染成 PNG（约 29 MB） |
-| Recovery image (bixi) | ✅ | 从 release 取原厂镜像、`sha256sum --check` 通过；`skyward-pack recovery` 写出 `skyward-c0f526d-bixi-OS3.0.304.0.WOHCNXM.img`（104857600 字节，ramdisk 48666877）；镜像里的配置**逐字节等于** `devices/bixi.toml`；adb 检查 7 项 PASS；zip 成 43.9 MB artifact |
-| Recovery image (bixi-cover) | ✅ | 同上，配置是 `devices/bixi-cover.toml`，ramdisk 48667009 字节（两份只差 132 字节，差的就是那份配置），artifact 43.9 MB |
+| Recovery image (bixi) | ✅ | 从 release 取原厂镜像、`sha256sum --check` 通过；`skyward-pack recovery` 写出 `skyward-<sha>-bixi-OS3.0.304.0.WOHCNXM.img`（104857600 字节，ramdisk 48666877）；`check-image-variant.py`：`skyward/device.toml` **逐字节等于** `devices/bixi.toml`，`the image draws on 1224x2912 with panel0-backlight, and reads synaptics`；adb 检查 7 项 PASS；zip 成 43.9 MB artifact |
+| Recovery image (bixi-cover) | ✅ | 同上，`…bixi-cover…img`（ramdisk 48667009，与内屏版只差 132 字节）；配置逐字节等于 `devices/bixi-cover.toml`，`draws on 1208x1392 with panel1-backlight, and reads goodix`；artifact 43.9 MB |
 
 `image` job 是这套东西第一次在 Linux 上真正出包：原厂镜像从 release 下、sha256 校验过，
 包大小正好是分区大小，两份配置各自归到自己的镜像里。**这不等于包能开机** —— 见 §8。

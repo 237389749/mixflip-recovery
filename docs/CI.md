@@ -1,7 +1,7 @@
 # CI：它替我们解决了什么，不解决什么
 
 当前状态：**全绿，6 个 job 全过，含出包**，
-run：<https://github.com/237389749/mixflip-recovery/actions/runs/42217087330>（2026-11-06，`c0f526d`）。
+run：<https://github.com/237389749/mixflip-recovery/actions/runs/42220039542>（2026-11-06，`cb8fcc4`）。
 
 本地是 Windows：`skyward-preview`、`skyward-install`、`skyward-net` 这些 crate 依赖
 `std::os::unix` / `rustix` / `UnixAddr`，**在 Windows 上编不出来**；TWRP 更不可能在 Windows 上全量编。
@@ -16,7 +16,7 @@ CI 就是用来补这两个洞的。
 | `skyward` | 按 `manifest.toml` 的 commit 克隆 skyward → 打 0003–0007 → 放 `devices/*.toml` → `cargo clippy --workspace --all-targets -D warnings` + `cargo test --workspace` + Android 目标 clippy + `ci/check-variants.py` | 约 10 分钟（冷缓存） |
 | `preview` | 两个变体各跑一次 `skyward-preview --device bixi` / `--device bixi-cover`，把 PNG 当 artifact | 几分钟 |
 | `twrp` | 克隆 TWRP 16 的 `bootable/recovery` → 打 0001 → **`g++ -fsyntax-only` 编译 `graphics_drm.cpp`**；克隆设备树 → 打 0002 + 0002b → `check-twrp-variants.py` 用真 make 验两个变体 → 编译显示程序 | 两三分钟 |
-| `image` | 下载原厂 `recovery.img`、校验 sha256、`skyward-pack recovery` 出两个变体的 img、跑 `check-recovery-adb.py`、zip 成 artifact（两个变体各一个） | 约 3 分钟（含 100 MiB 下载） |
+| `image` | 下载原厂 `recovery.img`、校验 sha256、`skyward-pack recovery` 出两个变体的 img、**核验镜像里装的是本变体的配置**、跑 `check-recovery-adb.py`、zip 成 artifact（两个变体各一个） | 约 3 分钟（含 100 MiB 下载） |
 
 `skyward`、`preview`、`twrp`、`image` 每次 push 都跑；`image` 的唯一前提是 `STOCK_BIXI_URL` 存在（现在就存在）。
 
