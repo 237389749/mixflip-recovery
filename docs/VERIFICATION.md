@@ -174,7 +174,8 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 
 ## 7. CI（GitHub Actions）
 
-最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42167537299> — **success**
+最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42217087330> — **success**
+（6 个 job 全过，2026-11-06，`c0f526d`）
 
 | job | 结果 | 证明了什么 |
 |---|---|---|
@@ -182,7 +183,11 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 | Patch and compile-check twrpminui | ✅ | 0001 在真 TWRP 16 源码上 apply + `g++ -fsyntax-only`；0002+0002b 在设备树上依次 apply；`check-twrp-variants.py` 用真 make 验两个变体；显示程序 `gcc -Wall -Wextra -Werror` 编译 |
 | Preview bixi | ✅ | 内屏 1224×2912 的所有页面渲染成 PNG（约 39 MB） |
 | Preview bixi-cover | ✅ | 外屏 1208×1392 的所有页面渲染成 PNG（约 29 MB） |
-| Recovery image | ⏭️ skipped | 没有设置 `STOCK_BIXI_URL`，CI 没有原厂 `recovery.img` |
+| Recovery image (bixi) | ✅ | 从 release 取原厂镜像、`sha256sum --check` 通过；`skyward-pack recovery` 写出 `skyward-c0f526d-bixi-OS3.0.304.0.WOHCNXM.img`（104857600 字节，ramdisk 48666877）；镜像里的配置**逐字节等于** `devices/bixi.toml`；adb 检查 7 项 PASS；zip 成 43.9 MB artifact |
+| Recovery image (bixi-cover) | ✅ | 同上，配置是 `devices/bixi-cover.toml`，ramdisk 48667009 字节（两份只差 132 字节，差的就是那份配置），artifact 43.9 MB |
+
+`image` job 是这套东西第一次在 Linux 上真正出包：原厂镜像从 release 下、sha256 校验过，
+包大小正好是分区大小，两份配置各自归到自己的镜像里。**这不等于包能开机** —— 见 §8。
 
 再往后的一次跑还抓到第四个问题：`check-twrp-variants.py` 默认找仓库内的设备树副本，
 而 CI 把设备树检出在 `device/`，于是报 “holds no BoardConfig.mk”。改成传路径后转绿。
@@ -210,7 +215,7 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 | 内屏背光写 0 后是否真的黑 | 逻辑推断 | 上机看另一块屏 |
 | 内屏 CRTC 是否仍在 scanout | 代码上只 detach 同 CRTC 的连接器 | `/sys/kernel/debug/dri/0/state` |
 | `goodix_core.ko` 在 recovery 能否 probe | 没有任何证据 | `dmesg | grep -i goodix` |
-| skyward 镜像打包 | Windows 上 `DeviceConfig::load` 路径语义失败 | CI 的 `image` job |
+| 打出来的镜像能不能开机 | 只证明了结构对、配置对、adb 属性对；没刷过 | 先 `fastboot boot` 试，再刷 |
 | TWRP 全量编译 | 没有 AOSP 树 | 设备树仓库的 builder + 两个 apply |
 
 ## 9. 诚实边界
@@ -222,4 +227,6 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
   显示程序 `-Wall -Wextra -Werror` 编译通过；
 - **没有任何一行在真机上跑过**；
 - TWRP 全量构建没有做（没有 AOSP 树），链接和真机行为未验证；
-- Linux 上的 `cargo test --workspace` 和 `skyward-preview` 出图已经由 CI 跑通（见 §7）。
+- Linux 上的 `cargo test --workspace` 和 `skyward-preview` 出图已经由 CI 跑通（见 §7）；
+- 两份 recovery 镜像已经在 CI 上打出来了（104857600 字节、配置逐字节核验、adb 检查 PASS），
+  但**没有一块屏被这两份镜像点过** —— 那要上机。

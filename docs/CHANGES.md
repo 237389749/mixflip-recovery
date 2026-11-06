@@ -258,9 +258,11 @@ C 程序能编译”之外，链接与真机行为未验证。外屏版 TWRP 的
 | TWRP 两个变体的 make 变量 | ✅ | `tools/check-twrp-variants.py`，用真 make 展开 `BoardConfig.mk` |
 | TWRP 显示程序编译 | ✅ | Android NDK clang，`-Wall -Wextra -Werror`，C11 |
 | TWRP 完整编译进 recovery.img | ❌ | 需要 AOSP 树；见 [CI.md](CI.md) 的全量构建路线 |
-| skyward 镜像打包 | ⚠️ 机制已验证 / CI 未跑 | 本机 Windows 用真实原厂 `recovery.img` + 临时配置跑通 packer（104857600 字节、`AVBf`、991 entries）；CI 的 `image` job 仍需 `STOCK_BIXI_URL` |
+| skyward 镜像打包（结构） | ✅ | 本机 Windows 用真实原厂 `recovery.img` + 临时配置跑通 packer（104857600 字节、`AVBf`、991 entries） |
+| skyward 镜像打包（CI 真出包） | ✅ | `image` job 从 release 取原厂镜像、sha256 校验、打出两份 104857600 字节的包；`tools/check-image-variant.py` 证明镜像里的配置逐字节等于各自的 `devices/*.toml` |
 | 默认 adb / root（镜像层） | ✅ | `tools/check-recovery-adb.py` 对烟测镜像 PASS：adbd 在、`ro.*` 最后一行 0/0/1、init 以 root 起 adbd |
 | 默认 adb / root（真机） | ❌ | 需上机 `adb devices` / `adb shell id` 确认 |
+| 打出来的镜像能否开机 | ❌ | 结构/配置/adb 属性都对，但没刷过；先 `fastboot boot` 试 |
 | DRM 提交/点亮/触摸/背光真机行为 | ❌ | 没有真机回灌；只能按 [VARIANTS.md](VARIANTS.md) 的顺序上机验 |
 | `panel0/panel1` 背光归属 | ⚠️ 推定 | 从 DT 推的，必须上机 `echo` 一次确认 |
 | `goodix` / `synaptics` 的 evdev 名字 | ⚠️ 推定 | TWRP 的 `TW_INPUT_BLACKLIST="goodix_ts"` 证明 Goodix 侧；用子串匹配降低拼写风险 |

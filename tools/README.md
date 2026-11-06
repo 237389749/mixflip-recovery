@@ -53,3 +53,18 @@ python tools\check-recovery-adb.py <recovery.img> --pack <skyward-pack.exe>
 
 CI 的 `image` job 出包后会自动跑它。为什么没有 `su`、为什么不需要，见
 [../docs/ADB_AND_ROOT.md](../docs/ADB_AND_ROOT.md)。
+
+`check-image-variant.py` 检查**打出来的镜像带的是不是本变体的配置**：
+
+```powershell
+python tools\check-image-variant.py <recovery.img> --pack <skyward-pack.exe> --config devices\bixi-cover.toml
+```
+
+打包器把 `--config` 原字节写进 ramdisk 的 `skyward/device.toml`，所以正确的结果是
+**逐字节相等**。这条能抓的错是：某个变体的 job 打进了另一份配置。其它检查
+（字节数 104857600、AVB footer、adb）对两份镜像都通过，只有这条会不同；
+而它到真机上才表现为「该亮的那块屏全黑」。CI 的 `image` job 也跑它。
+
+## 其它检查
+
+`check-twrp-variants.py` 用真 `make` 展开设备树的两个变体（CI 的 `twrp` job 用）。

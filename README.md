@@ -2,8 +2,8 @@
 
 小米 MIX Flip 2（bixi）的 recovery 显示在外屏/内屏的可复现改动集，以及两个成品版本的构建方法。
 
-> 仓库：<https://github.com/237389749/mixflip-recovery>（私有；CI 已跑通，见 Actions）。
-> 私有仓库会消耗 Actions 分钟；改成公开则免费，代码里没有需要保密的东西。
+> 仓库：<https://github.com/237389749/mixflip-recovery>（已公开）。CI 全绿，**两个镜像已经在 Actions 的 artifact 里出过**；
+> 原厂 `recovery.img` 放在 release [`stock-bixi`](https://github.com/237389749/mixflip-recovery/releases/tag/stock-bixi)。
 
 > 结论一句话：**能，但改的不是 ROM，是 recovery 自己的 DRM 选屏代码。**
 > fastboot 归 bootloader，仍然改不了；双屏同显也不支持。
@@ -49,8 +49,9 @@ cp devices/*.toml .work/skyward/devices/
 cargo ndk -t arm64-v8a --platform 30 build --release -p skyward --manifest-path .work/skyward/Cargo.toml
 ```
 
-不用本地环境也可以：推到 GitHub 后跑 `build` workflow，产物在 Actions 的 artifact 里。
-CI 需要原厂 `recovery.img` 的下载地址，见 [docs/CI.md](docs/CI.md)。
+不用本地环境也可以：推到 GitHub 后跑 `build` workflow，它会编出
+`skyward-<sha>-bixi-OS3.0.304.0.WOHCNXM.zip` 和 `…-bixi-cover-….zip`，产物在 Actions 的 artifact 里。
+出包要原厂 `recovery.img`：已在 release `stock-bixi` 里，并设成仓库变量 `STOCK_BIXI_URL`，见 [docs/CI.md](docs/CI.md)。
 
 ## 上游与基线
 

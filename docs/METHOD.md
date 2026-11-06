@@ -190,6 +190,22 @@ git stash pop && cargo test -p X # 改动后：13 passed; 15 failed
 
 ---
 
+## 13. 文档里的操作步骤，也要像代码一样先审一遍“凭据从哪来”
+
+**理由**：步骤是给人照做的，写错不会让任何测试变红 —— 它会一直等到有人真的照做。
+
+**这次的例子**：`CI.md §2` 原来写着“建 release → 复制 asset 直链 → 设成 `STOCK_BIXI_URL`”，
+而 workflow 里那一步是裸的 `curl -fL "$STOCK_URL"`。**私有仓库的 release asset 对匿名请求是 404**，
+照这个步骤做，第一次跑 `image` job 一定死在第一步，跟 URL 抄得对不对无关。
+写文档的时候没人跑过这条路径，所以它一直是“看起来能行”。
+
+**可复用的检查**：给任何“让自动化去取一个资源”的步骤，逐项问三句 ——
+**谁提供凭据、凭据从哪来、换成私有/公开之后还成不成立**。
+这次的答案是“没人提供、依赖仓库公开”，于是把仓库转公开，并把这条前提写进文档，
+而不是留一句“按上面做就行”。
+
+---
+
 ## 附：这次用到的命令（可直接重放）
 
 ```bash
@@ -210,6 +226,9 @@ python3 tools/check-twrp-variants.py <设备树路径>
 
 # 打出来的镜像是否默认 adb + root
 python3 tools/check-recovery-adb.py <recovery.img> --pack <skyward-pack>
+
+# 打出来的镜像里是不是本变体的配置（两份镜像只有这一处不同）
+python3 tools/check-image-variant.py <recovery.img> --pack <skyward-pack> --config devices/bixi-cover.toml
 
 # 外屏排版（必须 Linux/macOS）
 cargo run --release -p skyward-preview -- out --device bixi-cover --lang zh-CN

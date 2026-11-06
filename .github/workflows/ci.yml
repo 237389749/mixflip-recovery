@@ -245,6 +245,13 @@ jobs:
             --mono-license resources/fonts/KirkMono-OFL.txt \
             --out "../out/$name.img"
           echo "NAME=$name" >> "$GITHUB_ENV"
+      # Every other check passes for either variant: the same stock ramdisk,
+      # the same binary, the same fonts, the same 104857600 bytes. Only the
+      # configuration inside says which panel to light and which touch device
+      # to read, so this is the one that notices a job packing its sibling's.
+      - name: Check the image carries this variant's configuration
+        working-directory: upstream
+        run: python3 ../tools/check-image-variant.py "../out/$NAME.img" --pack ./target/release/skyward-pack --config "../${{ matrix.config }}"
       # The flip's cover screen can be black while recovery runs; adb is the
       # way in, so an image without it is not shipped.
       - name: Check adb comes up as root by default

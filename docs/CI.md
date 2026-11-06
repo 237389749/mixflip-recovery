@@ -1,7 +1,7 @@
 # CI：它替我们解决了什么，不解决什么
 
-当前状态：**全绿（`image` 因未设 `STOCK_BIXI_URL` 跳过）**，
-run：<https://github.com/237389749/mixflip-recovery/actions/runs/42022057174>。
+当前状态：**全绿，6 个 job 全过，含出包**，
+run：<https://github.com/237389749/mixflip-recovery/actions/runs/42217087330>（2026-11-06，`c0f526d`）。
 
 本地是 Windows：`skyward-preview`、`skyward-install`、`skyward-net` 这些 crate 依赖
 `std::os::unix` / `rustix` / `UnixAddr`，**在 Windows 上编不出来**；TWRP 更不可能在 Windows 上全量编。
@@ -16,35 +16,41 @@ CI 就是用来补这两个洞的。
 | `skyward` | 按 `manifest.toml` 的 commit 克隆 skyward → 打 0003–0007 → 放 `devices/*.toml` → `cargo clippy --workspace --all-targets -D warnings` + `cargo test --workspace` + Android 目标 clippy + `ci/check-variants.py` | 约 10 分钟（冷缓存） |
 | `preview` | 两个变体各跑一次 `skyward-preview --device bixi` / `--device bixi-cover`，把 PNG 当 artifact | 几分钟 |
 | `twrp` | 克隆 TWRP 16 的 `bootable/recovery` → 打 0001 → **`g++ -fsyntax-only` 编译 `graphics_drm.cpp`**；克隆设备树 → 打 0002 + 0002b → `check-twrp-variants.py` 用真 make 验两个变体 → 编译显示程序 | 两三分钟 |
-| `image` | 可选：有 `STOCK_BIXI_URL` 时下载原厂 `recovery.img`、校验 sha256、`skyward-pack recovery` 出两个变体的 img 并 zip，出包后跑 `check-recovery-adb.py` | 几分钟 |
+| `image` | 下载原厂 `recovery.img`、校验 sha256、`skyward-pack recovery` 出两个变体的 img、跑 `check-recovery-adb.py`、zip 成 artifact（两个变体各一个） | 约 3 分钟（含 100 MiB 下载） |
 
-`image` 只在设置了 `STOCK_BIXI_URL` 时跑；PR 会跑 `skyward`、`preview`、`twrp` 三个 job，
-只是不出镜像。
+`skyward`、`preview`、`twrp`、`image` 每次 push 都跑；`image` 的唯一前提是 `STOCK_BIXI_URL` 存在（现在就存在）。
 
-## 2. 让 CI 能出镜像：`STOCK_BIXI_URL`
+## 2. 让 CI 能出镜像：`STOCK_BIXI_URL`（已设好）
 
 `skyward-pack recovery` 需要原厂 `recovery.img`（整分区，100 MiB，结尾带 AVB footer）。
-本地它在：
+GitHub 的 runner 拿不到本机文件，所以这个文件放在**本仓库的 release** 里：
 
+```text
+release  stock-bixi
+asset    OS3.0.304.0.WOHCNXM-recovery.img   104857600 bytes
+sha256   bc32c5fa4f4396fd52a4c65d03ea84bb147609812194da4eecf12723e5fafcd9
+直链     https://github.com/237389749/mixflip-recovery/releases/download/stock-bixi/OS3.0.304.0.WOHCNXM-recovery.img
 ```
-../bixi_images_OS3.0.304.0/bixi_images_OS3.0.304.0.WOHCNXM_16.0/images/recovery.img
-sha256 bc32c5fa4f4396fd52a4c65d03ea84bb147609812194da4eecf12723e5fafcd9
-```
 
-GitHub 的 runner 拿不到本地文件，所以需要一个 HTTPS 地址。最省事的做法：
+仓库 **Settings → Secrets and variables → Actions → Variables** 里的 `STOCK_BIXI_URL` 就是上面这条直链。
+`image` job 用 `curl -fL` 取它，再拿 `manifest.toml` 的 `[stock] sha256` 校验，**校验不过直接失败**，
+不会拿错版本的镜像出包。
 
-1. 在本仓库建一个 release，把 `recovery.img` 传成 asset（100 MiB，在 2 GiB 的 asset 限制内）；
-2. 复制 asset 的直链，形如
-   `https://github.com/<owner>/<repo>/releases/download/stock-bixi/OS3.0.304.0.WOHCNXM-recovery.img`；
-3. 仓库 **Settings → Secrets and variables → Actions → Variables → New repository variable**，
-   名字 `STOCK_BIXI_URL`，值就是上面的直链。
+**硬前提：仓库必须是公开的。** 私有仓库的 release asset 对匿名请求返回 404，
+`curl` 没有凭据就取不到 —— `image` job 会死在第一步，跟 URL 抄得对不对无关。
+这条是 2026-11-06 把仓库从私有转公开的直接原因。如果以后要转回私有，
+把下载换成 `gh release download stock-bixi --pattern recovery.img` 并给 `GH_TOKEN: ${{ github.token }}`，
+那样就不需要公开仓库了。
 
-CI 会从 `manifest.toml` 读 `[stock] sha256` 校验，**校验不过直接失败**，不会拿错版本的镜像出包。
-没有设置这个变量时，CI 跳过出镜像，只编二进制 + 跑测试 + 出预览，不会红。
+换固件时三件事缺一不可，缺哪件 CI 都会在 sha256 上失败：
 
-> 为什么不直接让 `skyward-pack stock` 去小米 OTA 下载：那个子命令只认“完整 OTA 包里的
-> payload.bin”，而手上的原厂包是 **fastboot 线刷包**（`recovery.img` 已经是解开的单分区）。
-> 用 release asset 直接喂 `recovery.img` 更短、更可控，也避开了小米 OTA 的查询接口。
+1. 新 release（或同一个 release 里新 asset）上传新的 `recovery.img`；
+2. 改 `manifest.toml` 的 `[stock] version / file / size / sha256`；
+3. 改 `STOCK_BIXI_URL` 指向新 asset。
+
+> 为什么不让 `skyward-pack stock` 去小米 OTA 下载：那个子命令只认"完整 OTA 包里的 payload.bin"，
+> 而手上的原厂包是 **fastboot 线刷包**（`recovery.img` 已经解开）。用 release asset 直接喂 `recovery.img`
+> 更短、更可控，也避开了小米 OTA 的查询接口。
 
 ## 3. TWRP 全量编译（不在本仓库 CI 里跑）
 
@@ -81,5 +87,7 @@ CI 会从 `manifest.toml` 读 `[stock] sha256` 校验，**校验不过直接失�
 
 - `Swatinem/rust-cache` 缓存 `target/`，第二次 clippy 从几分钟降到几十秒；
 - NDK 由 `nttld/setup-ndk` 下载（r29），`cargo-ndk` 由 `taiki-e/install-action` 装；
+- **打包器写 ramdisk 时调的是 `lz4` 命令行**（读的时候是纯 Rust 的 `lz4_flex`），
+  `ubuntu-24.04` runner 上自带；换 runner 镜像要确认这一点，否则 `image` job 会死在打包步骤；
 - 原厂 `recovery.img` 可以再加一层 `actions/cache`（key 用 sha256），避免每次下载 100 MiB。
-  当前 workflow 直接 `curl`，够用；要更快就加缓存。
+  当前 workflow 直接 `curl`，从 release 下 100 MiB 在 runner 上是几秒级，够用。
