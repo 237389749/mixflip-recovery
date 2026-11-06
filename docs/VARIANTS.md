@@ -30,6 +30,31 @@ CI 需要原厂 `recovery.img` 的下载地址（变量 `STOCK_BIXI_URL`），�
 `skyward-pack recovery` 会调用 `DeviceConfig::load`，而它用 `Path::is_absolute()` 判断
 Android 的 `/data/...`，Windows 语义下会失败。**这一条只能 Linux/CI 做。**
 
+### 2.3 TWRP 侧的两个变体
+
+TWRP 是另一条路线（见 [CHANGES.md](CHANGES.md) §3）。同一棵设备树出两个版本，只差一个
+make 变量：
+
+```bash
+# 内屏版（默认，行为和现在一样）
+lunch twrp_bixi-bp2a-eng && m recoveryimage
+
+# 单外屏版
+lunch twrp_bixi-bp2a-eng && BIXI_COVER_SCREEN=1 m recoveryimage
+```
+
+两者差三处：`TW_BRIGHTNESS_PATH`、`TW_WHITELIST_INPUT`/`TW_INPUT_BLACKLIST`、
+以及装进镜像的 `panel-cover.prop`/`panel-inner.prop`（各写一个 `twrp.drm.connector`）。
+背光点亮由 `bixi-cover-display-cleanup` 按这个属性决定，所以“画在哪”和“亮在哪”永远一致。
+
+校验（不需要 AOSP 树）：
+
+```bash
+python tools/check-twrp-variants.py <设备树路径>
+```
+
+⚠️ TWRP 全量构建仍需 AOSP 树，本仓库没有验证过链接和真机行为。skyward 是更稳的那条路。
+
 ## 3. 刷
 
 ```bash

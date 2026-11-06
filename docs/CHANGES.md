@@ -174,7 +174,10 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 
 ## 3. TWRP 侧改动
 
-补丁：`0001`（`bootable/recovery`）、`0002`（设备树）。
+补丁：`0001`（`bootable/recovery`）、`0002` + `0002b`（设备树，按顺序打）。
+
+`0002b` 建立在 `0002` 之上：`0002` 是“让 recovery 能按名字选屏”，`0002b` 是“同一棵树出两个版本”。
+单独打 `0002b` 会失败，这是有意为之——它改的正是 `0002` 引入的那几行。
 
 ### T1 `twrpminui` 按名字选连接器
 
@@ -188,7 +191,7 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 
 编译验证只证明语法/头文件/类型正确，**不证明链接进 TWRP 后行为正确**，更不证明真机点亮。
 
-### T2 设备树配合
+### T2 设备树配合（0002）
 
 | 文件 | 改动 | 为什么 |
 |---|---|---|
@@ -197,13 +200,46 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | `recovery/root/init.recovery.qcom.rc` | 追加 `insmod goodix_core.ko` | 外屏触摸是 Goodix；原来只加载内屏的 Synaptics |
 | `system.prop` | `twrp.drm.connector=DSI-1` | 默认仍是内屏，行为不变 |
 
-⚠️ **TWRP 的“单外屏版”目前不完整，不要直接刷**。还差三处（未实现）：
+### T3 单外屏版：同一棵树出两个变体（0002b）
 
-1. `BoardConfig.mk`：`TW_BRIGHTNESS_PATH` 从 `panel0-backlight` 改成 `panel1-backlight`；
-2. `init.recovery.qcom.rc`：`panel0=200 / panel1=0` 反过来（否则外屏被 init 写成 0，TWRP 又去写内屏背光 → 外屏黑）；
-3. `TW_INPUT_BLACKLIST`：现在拉黑 `goodix_ts`（外屏触摸），外屏版要反过来拉黑 Synaptics。
+TWRP 侧以前只有内屏版。`0002b` 让它像 skyward 一样一棵树出两个版本，用 make 变量
+`BIXI_COVER_SCREEN=1` 选外屏：
 
-这三处不改，就是经典的“recovery 起来了、adb 正常、日志正常、就是黑屏”。
+| 项 | 内屏版（默认） | 单外屏版（`BIXI_COVER_SCREEN=1`） |
+|---|---|---|
+| `TW_BRIGHTNESS_PATH` | `panel0-backlight` | `panel1-backlight` |
+| 触摸 | `TW_INPUT_BLACKLIST="goodix_ts"` | `TW_WHITELIST_INPUT="goodix_ts"` |
+| 选屏属性 | `panel-inner.prop`：`DSI-1` | `panel-cover.prop`：`DSI-2` |
+
+三个关键设计：
+
+1. **变体判断放在 `BoardConfig.mk` 最顶部**。make 的 `ifeq` 是立即求值，变量定义在下面就会
+   拿到空值——`TARGET_SYSTEM_PROP` 那行正是这样。
+2. **选屏属性单独成文件**，两份各写一个 `twrp.drm.connector`，`system.prop` 不写。
+   否则两个文件设同一个属性，结果取决于 init 先读哪个——和 skyward 侧 `0007` 消除的是同一类问题。
+3. **背光写入从 `.rc` 移到 `bixi_cover_display_cleanup.c`**。init 的 `.rc` **不经预处理**，
+   `ifeq` 在里面无效；这个 C 程序本来就跑在 recovery 打开 card0 之前，而且 CI 会编译它。
+   它读同一个 `twrp.drm.connector` 决定点亮哪块、关掉哪块，所以“画在哪”和“亮在哪”由同一个值决定，
+   不可能不一致。
+
+验证：
+
+```text
+$ python tools/check-twrp-variants.py --make <ndk>/bin/make.exe
+inner:  BIXI_IS_COVER=0  panel0  TW_INPUT_BLACKLIST="goodix_ts"  panel-inner.prop
+cover:  BIXI_IS_COVER=1  panel1  TW_WHITELIST_INPUT="goodix_ts"  panel-cover.prop
+ok   panel-inner.prop names DSI-1
+ok   panel-cover.prop names DSI-2
+ok   system.prop names no panel, so nothing competes
+PASS: both variants build from one tree, differing only where they may
+```
+
+`bixi_cover_display_cleanup.c` 也用 `-Wall -Wextra -Werror` 编译过（Android NDK clang，C11）。
+CI 的 `twrp` job 每一步都会重跑这两项，外加 0001 的 `g++ -fsyntax-only`。
+
+⚠️ 仍然**没有**全量 TWRP 构建：没有 AOSP 树。所以“补丁贴得上、两个变体变量解析正确、
+C 程序能编译”之外，链接与真机行为未验证。外屏版 TWRP 的完整刷机序列见
+[VARIANTS.md](VARIANTS.md)。
 
 ---
 
@@ -219,6 +255,8 @@ msm 驱动，没有这个参数，原代码直接 `?` 失败，UI 起不来。
 | 外屏 1208×1392 的排版 | ✅ | CI 的 `skyward-preview --device bixi-cover` 把全部页面渲染成 PNG；第一次跑抓到 `70-erase` 的 crop abort，由 0006 修掉 |
 | 补丁在干净树上应用 | ✅ | CI 每次从 `manifest.toml` 的 commit 重新 clone 再 apply |
 | TWRP `graphics_drm.cpp` 语法编译 | ✅ | g++ `-fsyntax-only` + 真 TWRP 16 源码 + 桩头文件 |
+| TWRP 两个变体的 make 变量 | ✅ | `tools/check-twrp-variants.py`，用真 make 展开 `BoardConfig.mk` |
+| TWRP 显示程序编译 | ✅ | Android NDK clang，`-Wall -Wextra -Werror`，C11 |
 | TWRP 完整编译进 recovery.img | ❌ | 需要 AOSP 树；见 [CI.md](CI.md) 的全量构建路线 |
 | skyward 镜像打包 | ⚠️ 机制已验证 / CI 未跑 | 本机 Windows 用真实原厂 `recovery.img` + 临时配置跑通 packer（104857600 字节、`AVBf`、991 entries）；CI 的 `image` job 仍需 `STOCK_BIXI_URL` |
 | 默认 adb / root（镜像层） | ✅ | `tools/check-recovery-adb.py` 对烟测镜像 PASS：adbd 在、`ro.*` 最后一行 0/0/1、init 以 root 起 adbd |

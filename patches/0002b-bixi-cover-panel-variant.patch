@@ -1,0 +1,284 @@
+diff --git a/BoardConfig.mk b/BoardConfig.mk
+index a762c16..da9a7b6 100644
+--- a/BoardConfig.mk
++++ b/BoardConfig.mk
+@@ -1,6 +1,27 @@
+ # Xiaomi MIX Flip 2 (bixi) minimal TWRP bring-up tree.
+ DEVICE_PATH := device/xiaomi/bixi
+ 
++# Which of the phone's two panels this build draws on.
++#
++# bixi exposes both panels as DSI connectors and both stay connected at every
++# fold state, so which one recovery draws on has to be chosen rather than
++# found. One tree builds both:
++#
++#   (unset)             inner panel 1224x2912, Synaptics touch, panel0
++#   BIXI_COVER_SCREEN=1 cover panel 1208x1392, Goodix touch, panel1
++#
++# It is settled here, at the top, because everything below that depends on it
++# does so with make's immediate `ifeq`, and a variable set further down would
++# still be empty there. The differences between the two builds are the
++# backlight TWRP drives, the touch device TWRP listens to, and which
++# twrp.drm.connector property file goes in; nothing else, so a fix made for
++# one variant cannot be silently missing from the other.
++ifneq ($(filter 1 true yes,$(BIXI_COVER_SCREEN)),)
++    BIXI_IS_COVER := 1
++else
++    BIXI_IS_COVER := 0
++endif
++
+ # A minimal TWRP manifest does not contain every Android platform dependency.
+ ALLOW_MISSING_DEPENDENCIES := true
+ 
+@@ -85,6 +106,15 @@ TARGET_RECOVERY_FSTAB := $(DEVICE_PATH)/recovery.fstab
+ BOARD_ROOT_EXTRA_FOLDERS := firmware persist
+ BOARD_PROPERTY_OVERRIDES_SPLIT_ENABLED := true
+ TARGET_SYSTEM_PROP += $(DEVICE_PATH)/system.prop
++# The panel this build draws on, one file or the other. It is a separate file
++# rather than a line in system.prop so that only one file ever sets the
++# property: two files setting it would leave the value to which one init
++# reads last.
++ifeq ($(BIXI_IS_COVER),1)
++TARGET_SYSTEM_PROP += $(DEVICE_PATH)/panel-cover.prop
++else
++TARGET_SYSTEM_PROP += $(DEVICE_PATH)/panel-inner.prop
++endif
+ 
+ # File-based encryption (FBE v2 + metadata encryption).
+ TW_INCLUDE_CRYPTO := true
+@@ -105,10 +135,12 @@ TW_LOAD_VENDOR_MODULES := "nxp-nci.ko"
+ TW_LOAD_VENDOR_MODULES_EXCLUDE_GKI := true
+ TW_LOAD_PREBUILT_MODULES_AT_FIRST := true
+ 
+-# Recovery UI: stock inner display is 1224x2912.
++# Recovery UI, per variant (BIXI_COVER_SCREEN, settled at the top of this
++# file). Only the backlight TWRP drives and the touch device it listens to
++# differ; the panel twrpminui draws on comes from the property file chosen
++# above, and bixi-cover-display-cleanup lights whichever panel that names.
+ TARGET_RECOVERY_PIXEL_FORMAT := RGBX_8888
+ TW_THEME := portrait_hdpi
+-TW_BRIGHTNESS_PATH := /sys/class/backlight/panel0-backlight/brightness
+ TW_MAX_BRIGHTNESS := 16383
+ TW_DEFAULT_BRIGHTNESS := 500
+ TW_FRAMERATE := 60
+@@ -117,8 +149,26 @@ TW_DEFAULT_LANGUAGE := zh_CN
+ TW_DEVICE_VERSION := 0_xiaomi-sm8750-bixi_Jaco
+ TW_NO_SCREEN_BLANK := true
+ 
+-# 关闭背屏
++ifeq ($(BIXI_IS_COVER),1)
++# The cover panel's own backlight. Reaching it through TW_BRIGHTNESS_PATH
++# matters: a path that does not exist makes TWRP fall back to the first
++# `brightness` file under /sys/class/backlight, which is the inner panel's,
++# and the recovery would then draw on a panel nobody lit. This is the level
++# the brightness slider's 20 % lands on, so it comes up readable.
++TW_BRIGHTNESS_PATH := /sys/class/backlight/panel1-backlight/brightness
++# TWRP reads touches from this one device and ignores every other, so the
++# inner panel's controller cannot drive the cover panel's pages. The name is
++# the Goodix driver's input device, which the inner-panel build blacklists
++# today: same string, opposite meaning.
++TW_WHITELIST_INPUT := "goodix_ts"
++else
++TW_BRIGHTNESS_PATH := /sys/class/backlight/panel0-backlight/brightness
++# The inner panel's controller is the Synaptics one. Its input device name
++# comes from that driver and is not confirmed on hardware, so the cover
++# panel's is named out instead: whatever the Synaptics driver calls itself,
++# it is the one left listening.
+ TW_INPUT_BLACKLIST := "goodix_ts"
++endif
+ 
+ # Tool
+ TW_INCLUDE_7ZA := true
+diff --git a/display/bixi_cover_display_cleanup.c b/display/bixi_cover_display_cleanup.c
+index ed67972..d789329 100644
+--- a/display/bixi_cover_display_cleanup.c
++++ b/display/bixi_cover_display_cleanup.c
+@@ -37,6 +37,32 @@ static void log_result(const char *message) {
+     fprintf(stderr, "bixi-cover-display: %s\n", message);
+ }
+ 
++/* The level the recovery brings its panel up at, as the stock init wrote it:
++ * bright enough to read, short of the panel's own maximum. */
++#define BIXI_RECOVERY_BRIGHTNESS 200
++
++/* Write `value` to the backlight at `path`; a failure is logged and the rest
++ * goes on, since one dark panel is no reason to skip the other. */
++static void write_brightness(const char *path, int value) {
++    char text[16];
++    char message[192];
++    int fd;
++    int len;
++
++    fd = open(path, O_WRONLY | O_CLOEXEC);
++    if (fd < 0) {
++        snprintf(message, sizeof(message), "%s is not writable: %s", path, strerror(errno));
++        log_result(message);
++        return;
++    }
++    len = snprintf(text, sizeof(text), "%d", value);
++    if (write(fd, text, (size_t)len) != len) {
++        snprintf(message, sizeof(message), "%s took no %d: %s", path, value, strerror(errno));
++        log_result(message);
++    }
++    close(fd);
++}
++
+ /*
+  * This program exists to release the bootloader's continuous splash so a
+  * stale Xiaomi logo does not stay lit. When the recovery draws on the cover
+@@ -59,6 +85,26 @@ static int cover_panel_is_the_recovery_screen(void) {
+     return strstr(requested, "1208x1392") != NULL;
+ }
+ 
++/*
++ * Light the panel the recovery draws on and leave the other dark. This runs
++ * before the recovery opens card0, so it is the first thing to touch either
++ * backlight, and it reads the same twrp.drm.connector value twrpminui and
++ * the rest of this program read: one property decides both which panel is
++ * drawn on and which one is lit, so the two cannot disagree.
++ *
++ * Both are written, not just the one in use: the bootloader lights the panel
++ * it put its splash on, and a panel left at whatever level that was stays
++ * lit behind the recovery.
++ */
++static void light_the_recovery_panel(void) {
++    const int cover = cover_panel_is_the_recovery_screen();
++    static const char cover_path[] = "/sys/class/backlight/panel1-backlight/brightness";
++    static const char inner_path[] = "/sys/class/backlight/panel0-backlight/brightness";
++
++    write_brightness(cover ? cover_path : inner_path, BIXI_RECOVERY_BRIGHTNESS);
++    write_brightness(cover ? inner_path : cover_path, 0);
++}
++
+ /*
+  * The bootloader leaves the secondary OLED displaying its continuous-splash
+  * framebuffer.  Detaching the DRM pipeline stops scanout, but the panel keeps
+@@ -310,6 +356,10 @@ int main(void) {
+     int fd;
+     const int cover_is_recovery_screen = cover_panel_is_the_recovery_screen();
+ 
++    /* First, before card0 is taken: light the panel the recovery draws on,
++     * whichever of the two this build is for. */
++    light_the_recovery_panel();
++
+     fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+     if (fd < 0) {
+         snprintf(message, sizeof(message), "cannot open card0: %s", strerror(errno));
+diff --git a/panel-cover.prop b/panel-cover.prop
+new file mode 100644
+index 0000000..21c5059
+--- /dev/null
++++ b/panel-cover.prop
+@@ -0,0 +1,18 @@
++# Which panel the recovery draws on, for the cover-panel build (the phone
++# folded shut, or a phone whose inner panel is gone). BoardConfig.mk selects
++# this file or panel-inner.prop, so only one of the two is ever in the image.
++#
++# bixi exposes both panels as DSI connectors and both stay connected at every
++# fold state, so naming the cover panel is what moves the recovery onto it;
++# without the name twrpminui takes the first one the driver lists.
++#
++#   DSI-1 / 1224x2912   inner panel
++#   DSI-2 / 1208x1392   cover panel
++#
++# bixi-cover-display-cleanup reads this same property to light the panel it
++# names and turn the other one off, so the panel drawn on and the panel lit
++# cannot disagree. It also leaves the cover panel's VCI rail powered, which
++# the inner-panel build forces off to clear the bootloader's stale frame.
++# Needs the find_connector_by_name() patch in bootable/recovery's
++# twrpminui/graphics_drm.cpp; without it twrpminui ignores the property.
++twrp.drm.connector=DSI-2
+diff --git a/panel-inner.prop b/panel-inner.prop
+new file mode 100644
+index 0000000..0ba396e
+--- /dev/null
++++ b/panel-inner.prop
+@@ -0,0 +1,19 @@
++# Which panel the recovery draws on, for the inner-panel build (the phone
++# unfolded). BoardConfig.mk selects this file or panel-cover.prop, so only
++# one of the two is ever in the image.
++#
++# bixi exposes both panels as DSI connectors and both stay connected at every
++# fold state. twrpminui's find_main_monitor() otherwise takes the first one
++# the driver lists, which is the inner panel; this names the one to use
++# explicitly, so a change to the driver's enumeration order cannot move the
++# recovery to the other panel.
++#
++#   DSI-1 / 1224x2912   inner panel
++#   DSI-2 / 1208x1392   cover panel
++#
++# bixi-cover-display-cleanup reads this same property to light the panel it
++# names and turn the other one off, so the panel drawn on and the panel lit
++# cannot disagree. Needs the find_connector_by_name() patch in
++# bootable/recovery's twrpminui/graphics_drm.cpp; without it twrpminui
++# ignores the property.
++twrp.drm.connector=DSI-1
+diff --git a/recovery/root/init.recovery.qcom.rc b/recovery/root/init.recovery.qcom.rc
+index 8a3436d..f98fe5d 100644
+--- a/recovery/root/init.recovery.qcom.rc
++++ b/recovery/root/init.recovery.qcom.rc
+@@ -5,8 +5,12 @@ on early-init
+     # 0x122) and the 1208x1392 cover panel with goodix_core (DT node
+     # goodix_berlin@0, "panel" -> dsi_o8_42_02_0a_sec_dsc_cmd, phandle
+     # 0x123). Both drivers depend on xiaomi_touch.ko, so it loads first.
+-    # Loading both keeps either panel drivable without a rebuild; the
+-    # recovery only ever draws on the one twrp.drm.connector names.
++    #
++    # Both are loaded, unlike skyward, which treats a failed module load as
++    # fatal: init's insmod only logs a driver that cannot find its panel, so
++    # the one on the panel this build does not draw on fails harmlessly.
++    # Which controller TWRP listens to is decided by TW_WHITELIST_INPUT /
++    # TW_INPUT_BLACKLIST in BoardConfig.mk, which the build does preprocess.
+     insmod /vendor/lib/modules/xiaomi_touch.ko
+     insmod /vendor/lib/modules/synaptics_tcm2.ko
+     insmod /vendor/lib/modules/goodix_core.ko
+@@ -15,12 +19,12 @@ on init
+     # Match the stock recovery's UFS compatibility link and initial panel level.
+     wait /dev/block/platform/soc/${ro.boot.bootdevice}
+     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
+-    # Name the panel the recovery draws on, configured by
+-    # twrp.drm.connector in system.prop. twrpminui's find_main_monitor()
+-    # otherwise takes the first connected DSI connector, which on bixi is the
+-    # inner panel; DSI-2 / 1208x1392 selects the cover panel instead.
+-    write /sys/class/backlight/panel0-backlight/brightness 200
+-    write /sys/class/backlight/panel1-backlight/brightness 0
++    # The backlight is not written here: which panel to light follows
++    # twrp.drm.connector, and an init .rc is not preprocessed, so the choice
++    # is made in bixi-cover-display-cleanup instead. That program runs before
++    # the recovery opens card0 (see the boot action below) and reads the same
++    # property twrpminui reads, so the panel drawn on and the panel lit are
++    # decided by one value.
+     setprop sys.usb.configfs 1
+     setprop sys.usb.config adb
+     setprop prepdecrypt.setpatch true
+@@ -81,9 +85,10 @@ on boot
+     # This imported boot action runs before init's class_start default, hence
+     # before /system/bin/recovery opens card0 and becomes DRM master.
+     wait /dev/dri/card0 5
++    # Lights the panel this build draws on from twrp.drm.connector, and turns
++    # the other one off; the choice is not made here (see on init).
+     exec_start bixi-cover-display-cleanup
+     start odm.post_boot
+-    write /sys/class/backlight/panel1-backlight/brightness 0
+     setprop sys.usb.config adb
+ 
+ # Only the postrecoveryboot hook starts this oneshot service, after TWRP has
+diff --git a/system.prop b/system.prop
+index 34cee09..b6af0bd 100644
+--- a/system.prop
++++ b/system.prop
+@@ -13,10 +13,7 @@ vendor.usb.rps_mask=0
+ vendor.usb.uvc.function.init=1
+ service.adb.tcp.port=5555
+ 
+-# Which panel TWRP draws on. bixi exposes both panels as DSI connectors and
+-# twrpminui otherwise takes the first connected one. Possible values:
+-#   DSI-1 / 1224x2912   inner panel (what the tree does today)
+-#   DSI-2 / 1208x1392   cover panel
+-# Needs the find_connector_by_name() patch in bootable/recovery's
+-# twrpminui/graphics_drm.cpp; without it twrpminui ignores the property.
+-twrp.drm.connector=DSI-1
++# Which panel the recovery draws on is not set here: BoardConfig.mk adds
++# panel-inner.prop or panel-cover.prop to TARGET_SYSTEM_PROP, and only that
++# one file sets twrp.drm.connector, so the value cannot depend on which of
++# two files init happens to read last.

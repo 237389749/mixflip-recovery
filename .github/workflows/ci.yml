@@ -142,12 +142,27 @@ jobs:
             -I /usr/include/libdrm \
             -I ci/stubs \
             recovery/twrpminui/graphics_drm.cpp
-      - name: Check the device-tree patch applies
+      - name: Check the device-tree patches apply and build their variants
         run: |
           git init --quiet device
           git -C device fetch --quiet --depth 1 "$TWRP_DEVICE_URL" "$TWRP_DEVICE_REF"
           git -C device checkout --quiet FETCH_HEAD
-          git -C device apply --check "$GITHUB_WORKSPACE/patches/0002-bixi-let-the-recovery-choose-its-panel.patch"
+          git -C device apply "$GITHUB_WORKSPACE/patches/0002-bixi-let-the-recovery-choose-its-panel.patch"
+          git -C device apply "$GITHUB_WORKSPACE/patches/0002b-bixi-cover-panel-variant.patch"
+      # The two variants differ only in variables make resolves; this asks
+      # make itself, with the patched tree, rather than reading the file.
+      - name: Check both panel variants resolve as intended
+        run: python3 tools/check-twrp-variants.py
+      # The program that lights the panel the recovery draws on runs before
+      # the recovery starts, so it has to build on its own. It is the same
+      # source for both variants: the panel is chosen at runtime from
+      # twrp.drm.connector, which is why this builds once rather than twice.
+      - name: Compile the display program
+        run: |
+          gcc -std=gnu11 -Wall -Wextra -Werror -fsyntax-only \
+            -I /usr/include/libdrm \
+            -I ci/stubs \
+            device/display/bixi_cover_display_cleanup.c
 
   image:
     name: Recovery image

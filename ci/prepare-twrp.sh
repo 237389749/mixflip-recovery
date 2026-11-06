@@ -35,6 +35,8 @@ git -C "$work/device" fetch --quiet --depth 1 "$device_url" "$device_ref"
 git -C "$work/device" checkout --quiet FETCH_HEAD
 git -C "$work/device" apply "$root/patches/0002-bixi-let-the-recovery-choose-its-panel.patch"
 echo "applied 0002"
+git -C "$work/device" apply "$root/patches/0002b-bixi-cover-panel-variant.patch"
+echo "applied 0002b"
 
 if command -v g++ >/dev/null && [ -f /usr/include/libdrm/xf86drmMode.h ]; then
     g++ -std=gnu++17 -fsyntax-only \

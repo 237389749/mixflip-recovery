@@ -13,11 +13,10 @@ CI 就是用来补这两个洞的。
 
 | job | 做什么 | 用时 |
 |---|---|---|
-| `skyward` | 按 `manifest.toml` 的 commit 克隆 skyward → 打 0003–0007 → 放 `devices/*.toml` → `cargo clippy --workspace --all-targets -D warnings` + `cargo test --workspace` + Android 目标 clippy | 约 10 分钟（冷缓存） |
-| `variants` | 同一套准备，Linux 上跑 `skyward-pack` 解析两份配置；`ci/check-variants.py` 检查两版只差规定键 | 秒级 |
+| `skyward` | 按 `manifest.toml` 的 commit 克隆 skyward → 打 0003–0007 → 放 `devices/*.toml` → `cargo clippy --workspace --all-targets -D warnings` + `cargo test --workspace` + Android 目标 clippy + `ci/check-variants.py` | 约 10 分钟（冷缓存） |
 | `preview` | 两个变体各跑一次 `skyward-preview --device bixi` / `--device bixi-cover`，把 PNG 当 artifact | 几分钟 |
-| `twrp` | 克隆 TWRP 16 的 `bootable/recovery` → 打 0001 → **`g++ -fsyntax-only` 编译 `graphics_drm.cpp`**（真源码 + libdrm + 桩头文件） | 一分钟 |
-| `image` | 可选：有 `STOCK_BIXI_URL` 时下载原厂 `recovery.img`、校验 sha256、`skyward-pack recovery` 出两个变体的 img 并 zip | 几分钟 |
+| `twrp` | 克隆 TWRP 16 的 `bootable/recovery` → 打 0001 → **`g++ -fsyntax-only` 编译 `graphics_drm.cpp`**；克隆设备树 → 打 0002 + 0002b → `check-twrp-variants.py` 用真 make 验两个变体 → 编译显示程序 | 两三分钟 |
+| `image` | 可选：有 `STOCK_BIXI_URL` 时下载原厂 `recovery.img`、校验 sha256、`skyward-pack recovery` 出两个变体的 img 并 zip，出包后跑 `check-recovery-adb.py` | 几分钟 |
 
 `image` 只在设置了 `STOCK_BIXI_URL` 时跑；PR 会跑 `skyward`、`preview`、`twrp` 三个 job，
 只是不出镜像。
