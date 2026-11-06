@@ -11,12 +11,15 @@ skyward @ c9deaf026eaf83fe2b9141dd656c256ddf42c8c1
   git apply patches/0003-…  → exit 0
   git apply patches/0004-…  → exit 0
   git apply patches/0005-…  → exit 0
+  git apply patches/0006-…  → exit 0
+  git apply patches/0007-…  → exit 0
 
 bootable/recovery @ 8a58fc3b586b8a908337fa87529cfbbb119ec7bb
   git apply patches/0001-…  → exit 0
 
 twrp_device_xiaomi_sm8750_bixi @ 9b4b445004006fc2ffbdfefbf7fc7e7758cf129a
-  git apply --check patches/0002-…  → exit 0
+  git apply patches/0002-…   → exit 0
+  git apply patches/0002b-…  → exit 0（须在 0002 之后）
 ```
 
 补丁是 `git diff` 生成的，不是手写；上面的顺序就是 CI 的顺序。
@@ -171,15 +174,18 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 
 ## 7. CI（GitHub Actions）
 
-最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42022057174> — **success**
+最终一次 run：<https://github.com/237389749/mixflip-recovery/actions/runs/42167537299> — **success**
 
 | job | 结果 | 证明了什么 |
 |---|---|---|
 | Lint and test the patched skyward | ✅ | Linux 上 `cargo clippy --workspace --all-targets -D warnings`、`cargo test --workspace`、Android 目标 clippy、两个变体一致性 |
-| Patch and compile-check twrpminui | ✅ | 0001 在真 TWRP 16 源码上 apply + `g++ -fsyntax-only`；0002 在设备树上 `git apply --check` |
+| Patch and compile-check twrpminui | ✅ | 0001 在真 TWRP 16 源码上 apply + `g++ -fsyntax-only`；0002+0002b 在设备树上依次 apply；`check-twrp-variants.py` 用真 make 验两个变体；显示程序 `gcc -Wall -Wextra -Werror` 编译 |
 | Preview bixi | ✅ | 内屏 1224×2912 的所有页面渲染成 PNG（约 39 MB） |
 | Preview bixi-cover | ✅ | 外屏 1208×1392 的所有页面渲染成 PNG（约 29 MB） |
 | Recovery image | ⏭️ skipped | 没有设置 `STOCK_BIXI_URL`，CI 没有原厂 `recovery.img` |
+
+再往后的一次跑还抓到第四个问题：`check-twrp-variants.py` 默认找仓库内的设备树副本，
+而 CI 把设备树检出在 `device/`，于是报 “holds no BoardConfig.mk”。改成传路径后转绿。
 
 第一次跑抓到了三个真问题，都不是“读代码能看出来”的：
 
@@ -212,6 +218,8 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 - `0003`–`0007` 在 **Android 目标**（前四个）和 **Windows host**（`skyward-pack`）上编译/测试通过，
   配置测试本机 16 通过、pack 测试 7 通过；
 - `0001` 在 **TWRP 16 真源码**上语法编译通过；
-- `0002` 只做了 `git apply --check`；
+- `0002`/`0002b` 在设备树上依次 apply 通过；两个变体的 make 变量由真 make 展开验证过；
+  显示程序 `-Wall -Wextra -Werror` 编译通过；
 - **没有任何一行在真机上跑过**；
-- Linux 上的 `cargo test --workspace` 和 `skyward-preview` 出图，要等 CI 第一次运行。
+- TWRP 全量构建没有做（没有 AOSP 树），链接和真机行为未验证；
+- Linux 上的 `cargo test --workspace` 和 `skyward-preview` 出图已经由 CI 跑通（见 §7）。

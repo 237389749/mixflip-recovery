@@ -127,8 +127,12 @@ TWRP 的路子一样，只是时机不同：
 - `init.recovery.qcom.rc` 的 `on init` 里 `setprop sys.usb.config adb`；
 - TWRP 的 adbd 也是 root，终端本身也是 root。
 
-外屏版 TWRP 目前**不完整**（背光路径/黑名单没换，见 [CHANGES.md](CHANGES.md) §3），
-但“adb 默认开、root”这一条在 TWRP 侧是成立的。
+外屏版（`BIXI_COVER_SCREEN=1`，见 [CHANGES.md](CHANGES.md) §3 T3）不改这一块：
+`ro.adb.secure=0` 和 `setprop sys.usb.config adb` 两个版本都在，变体只差背光、触摸和选屏属性。
+所以“adb 默认开、root”在 TWRP 的两个版本上都成立。
+
+⚠️ 但 TWRP 侧的画面仍然**没有全量构建验证**（没有 AOSP 树）：补丁能贴、变体变量正确、显示程序能编译，
+链接和真机行为未验证。见 [VERIFICATION.md](VERIFICATION.md)。
 
 ---
 
