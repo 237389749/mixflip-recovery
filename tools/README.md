@@ -68,3 +68,13 @@ python tools\check-image-variant.py <recovery.img> --pack <skyward-pack.exe> --c
 ## 其它检查
 
 `check-twrp-variants.py` 用真 `make` 展开设备树的两个变体（CI 的 `twrp` job 用）。
+
+`vendor_boot_ramoops.py` 看 `vendor_boot.img` 里的设备树有没有给 `pstore` 留 ramoops 区域 ——
+有，才谈得上“从 recovery 里读上一次启动的内核日志”（[../docs/BOOTLOG.md](../docs/BOOTLOG.md)）：
+
+```powershell
+python tools\vendor_boot_ramoops.py <vendor_boot.img>
+```
+
+它把镜像里**每一棵** DT 都解出来，要求它们的 ramoops 区域完全一致（不一致 = 不同板型把日志放在不同地方），
+只认属性数上千的真 FDT。换固件后重跑一次。

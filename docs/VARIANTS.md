@@ -160,3 +160,29 @@ adb shell 'cat /sys/class/drm/card0-DSI-1/status; cat /sys/class/drm/card0-DSI-1
 | 摸内屏控制外屏 | 同上 | 正常现象（触摸没选对外屏） |
 | 启动就退出/黑屏 | `no connected panel is` | `panel` 值与实际模式不符（换固件后分辨率变了） |
 | 两块都亮 | `panel0` 亮度 | 旧构建没有 `backlights_off`，或内屏 VCI 没断 |
+
+## 7. 能不能做成“自动选屏”（一个镜像通吃）
+
+> 状态：**未实现、未验证**。这一节记的是可行性判断，不是做法。
+
+**布局不是障碍。** UI 的尺寸来自实际 DRM mode，不是配置：
+`KmsSurface` 取 connector 的 preferred mode 定 `(w,h)`，`App::new` 直接用；
+配置里的 `width/height` 只喂 `skyward-preview`。随屏变、必须跟着换的只有
+`density`、`corner_radius`、`backlight`、`backlights_off`、`touch.device` —— 全是配置值。
+
+**检测才是障碍，而且是“内核知道、用户态没验”。** 已知：
+
+- 社区救砖是“剪一段废屏排线留着 DDIC 插上”，说明内核靠 DSI 训练 + 读 panel ID 判断屏在不在（抓日志见 [BOOTLOG.md](BOOTLOG.md)）；
+- 但 flip1 实测拔屏后 DRM 侧**仍 `connected`**，所以 `state == Connected` 不能单独当判据 ——
+  而现在的选屏代码恰好就建立在这个字段上；
+- bixi 上“拔掉内屏后 DSI-1 长什么样”**没有任何数据**。三种可能形态，实现完全不同：
+  connector 消失 / 在但 modes 为 0 / 一切照旧只有一行 dmesg 报错。
+
+**还有个现成的坑**：`[modules] load` 的失败是致命的（`finit_module` 出错就退出）。
+所以“两块触摸驱动都加载、运行时再选”会让**没内屏的机器连外屏都起不来** —— 见 [CHANGES.md](CHANGES.md) S6。
+
+如果真的要做，形状应该是：一份配置两套 profile → 优先级链（显式指定 > 两块都在选内屏 > 内屏不可用选外屏）
+→ 每一步写 kmsg → 保留强制指定。**不要指望“精确判断两块都在”**，能做的是“说得过去的优先级 + 错了能覆盖”。
+
+先做一件事：进 recovery 跑 [BOOTLOG.md §3](BOOTLOG.md) 那几条命令，看 DSI-1 属于哪种形态 ——
+`dmesg | grep -i dsi` 和 `skyward kms` 的输出决定上面这条链怎么写。

@@ -65,6 +65,7 @@ cargo ndk -t arm64-v8a --platform 30 build --release -p skyward --manifest-path 
 - [docs/ADB_AND_ROOT.md](docs/ADB_AND_ROOT.md) —— 默认 adb / root、为什么没有 su、怎么验
 - [docs/METHOD.md](docs/METHOD.md) —— **可复现的思路**（同类问题怎么再走一遍）
 - [docs/CI.md](docs/CI.md) —— CI 能做什么、不能做什么
+- [docs/BOOTLOG.md](docs/BOOTLOG.md) —— **拔内屏卡开机时怎么抓内核日志**（pstore/ramoops，可行性已确认、未实机）
 - [docs/UPSTREAM.md](docs/UPSTREAM.md) —— 哪些改动提 PR、哪些留本仓库
 - [docs/VERIFICATION.md](docs/VERIFICATION.md) —— 哪些验证过、哪些没有
 - [会话总结.md](会话总结.md)、[外屏recovery可行性与方案.md](外屏recovery可行性与方案.md)、[skyward外屏方案.md](skyward外屏方案.md) —— 过程记录

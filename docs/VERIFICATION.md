@@ -216,6 +216,7 @@ ok  devices/bixi.toml and devices/bixi-cover.toml differ only in:
 | 内屏 CRTC 是否仍在 scanout | 代码上只 detach 同 CRTC 的连接器 | `/sys/kernel/debug/dri/0/state` |
 | `goodix_core.ko` 在 recovery 能否 probe | 没有任何证据 | `dmesg | grep -i goodix` |
 | 打出来的镜像能不能开机 | 只证明了结构对、配置对、adb 属性对；没刷过 | 先 `fastboot boot` 试，再刷 |
+| 拔内屏卡开机的内核日志 | 只确认了通道存在（4 MiB ramoops，2 MiB console），没读过内容 | 进 recovery 先 dump `/sys/fs/pstore`，步骤见 [BOOTLOG.md](BOOTLOG.md) |
 | TWRP 全量编译 | 没有 AOSP 树 | 设备树仓库的 builder + 两个 apply |
 
 ## 9. 诚实边界
